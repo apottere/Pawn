@@ -452,6 +452,7 @@ Pawn插件默认已经参考AskMrRobot给所有职业的专精建立了标准评
 		["SocketingAdvisorHeader"] = "Pawn 插槽建议:",
 		["SocketingAdvisorIgnoreThisItem"] = "不需要特地为这个低等装备去镶嵌宝石，但如果你真的要这么做的话，可参考以下建议：",
 		["StarterProvider"] = "各职业标准属性权重：",
+		["ForeverProvider"] = "Forever scales",
 		["ValuesDoNotShowUpgradesFor1H"] = "请不要显示单手装备的提升",
 		["ValuesDoNotShowUpgradesFor2H"] = "请不要显示双手装备的提升",
 		["ValuesDoNotShowUpgradesTooltip"] = "启用该选项来隐藏此类型装备的提升。比如，虽然坦骑可以用双手武器，但是对坦骑设定来说一件双手武器从来都不是一个\"提升\"，因此Pawn将不会为它们显示提升信息。同样，惩戒骑可以使用单手武器，但它们从不是一个提升。",

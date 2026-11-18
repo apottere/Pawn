@@ -474,6 +474,7 @@ WoW中所有的物件都有個ID，通常只有寫插件的人才需要這些資
 		["SocketingAdvisorHeader"] = "Pawn 插槽建議:",
 		["SocketingAdvisorIgnoreThisItem"] = "不需要特地為這個低等裝備嵌入寶石，但如果你真的要的話，可使用以下建議:",
 		["StarterProvider"] = "預設權重",
+		["ForeverProvider"] = "Forever scales",
 		["ValuesDoNotShowUpgradesFor1H"] = "不要顯示單手裝備的提升",
 		["ValuesDoNotShowUpgradesFor2H"] = "不要顯示雙手裝備的提升",
 		["ValuesDoNotShowUpgradesTooltip"] = "啟用該選項來隱藏此類型裝備的提升。比如，雖然坦騎可以用雙手武器，但是對坦騎設定來說一件雙手武器從來都不是一個 \"提升\"，因此Pawn將不會為它們顯示提升訊息。同樣，懲戒騎可以使用單手武器，但它們從不是一個提升。",

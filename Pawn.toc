@@ -51,3 +51,4 @@ PawnUI.lua
 PawnUI.xml
 AskMrRobot.lua [AllowLoadGameType mainline][ExcludeLoadGameType camelot]
 ClassicHawsJon.lua [AllowLoadGameType classic, camelot]
+ForeverScales.lua [AllowLoadGameType camelot]
