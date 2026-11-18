@@ -486,6 +486,7 @@ Pawn이 상점에 판매했거나, 파괴했거나, 다른 방법으로 더이�
 PawnLocal.TooltipParsing = {
 	["Agility"] = "^민첩성 %+?#$",
 	["AllResist"] = "^모든 저항 %+?#$",
+	["AllResist2"] = "^UNUSED$",
 	["AllStats"] = "^모든 능력치 %+?#$",
 	["Ap"] = "^전투력 %+?#$",
 	["Ap2"] = "^착용 효과: 전투력 %+#$",
@@ -629,6 +630,7 @@ PawnLocal.TooltipParsing = {
 	["NatureSpellDamage2"] = "^착용 효과: 자연 계열의 주문과 효과의 공격력이 최대 #만큼 증가합니다%.$",
 	["NatureSpellDamage3"] = "^UNUSED$",
 	["NormalizationEnchant"] = "^마법부여: (.*)$",
+	["NormalizationZoneBonus"] = "^UNUSED$",
 	["Parry"] = "^무기 막기 %+?#$",
 	["Parry2"] = "^UNUSED$",
 	["ParryPercent"] = "^착용 효과: 무기 막기 확률이 #%%만큼 증가합니다%.$",
