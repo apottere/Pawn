@@ -457,6 +457,9 @@ Este comando não pode ser desfeito!]=],
 		["ScaleSelectorShowScaleTooltip"] = [=[Ative essa opção para mostrar essa escala nas dicas de ferramentas de itens e fazer com que o Pawn use-a para sugerir melhorias. Você pode ter mais de uma escala ativa em cada personagem.
 
 Atalho: Shift+clique em uma escala]=],
+		["ScaleComparisonSet"] = "Compare against:",
+		["ScaleComparisonSetEquipped"] = "Equipped items",
+		["ScaleComparisonSetTooltip"] = "Choose an equipment set for Pawn to compare items against when suggesting upgrades for this scale on this character, instead of the items you have equipped.  Items in the set's ignored slots are compared against what you have equipped.",
 		["ScaleShareHeader"] = "Compartilhar suas escalas",
 		["ScaleTab"] = "Escalas",
 		["ScaleTypeNormal"] = "Você pode mudar esta escala na aba Valores.",

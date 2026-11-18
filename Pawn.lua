@@ -184,6 +184,13 @@ function PawnOnEvent(Event, arg1, arg2, ...)
 		PawnOnSpecChanged()
 	elseif Event == "ARTIFACT_UPDATE" then
 		PawnOnArtifactUpdated()
+	elseif Event == "EQUIPMENT_SETS_CHANGED" then
+		-- Scales can compare against equipment sets, so their contents affect upgrades.
+		if PawnIsInitialized then
+			PawnResetTooltips()
+			PawnResetBags()
+		end
+		if PawnUI_ScalesTab_Refresh and PawnUIScalesTabPage and PawnUIScalesTabPage:IsVisible() then PawnUI_ScalesTab_Refresh() end
 	elseif Event == "GROUP_ROSTER_UPDATE" then
 		PawnShowPlayingWithVgerEasterEgg()
 	elseif Event == "PLAYER_LOGIN" then
@@ -415,10 +422,14 @@ function PawnInitialize()
 				local _, ItemLink1 = ShoppingTooltip1:GetItem()
 				PawnUpdateTooltip("ShoppingTooltip1", "SetCompareItem", ItemLink1)
 				PawnAttachIconToTooltip(ShoppingTooltip1, true)
+				PawnUpdateComparisonSetTooltip(1, ItemLink1)
 				local _, ItemLink2 = ShoppingTooltip2:GetItem()
 				if ItemLink2 and ShoppingTooltip2:IsShown() then
 					PawnUpdateTooltip("ShoppingTooltip2", "SetHyperlink", ItemLink2)
 					PawnAttachIconToTooltip(ShoppingTooltip2, true)
+					PawnUpdateComparisonSetTooltip(2, ItemLink2)
+				else
+					PawnUpdateComparisonSetTooltip(2, nil)
 				end
 			end)
 		hooksecurefunc(ItemRefShoppingTooltip1, "SetCompareItem",
@@ -439,10 +450,12 @@ function PawnInitialize()
 		hooksecurefunc(ShoppingTooltip1, "ProcessInfo", function()
 			local _, ItemLink = TooltipUtil.GetDisplayedItem(ShoppingTooltip1)
 			if ItemLink then PawnUpdateTooltip("ShoppingTooltip1", "SetHyperlink", ItemLink) end
+			PawnUpdateComparisonSetTooltip(1, ItemLink)
 		end)
 		hooksecurefunc(ShoppingTooltip2, "ProcessInfo", function()
 			local _, ItemLink = TooltipUtil.GetDisplayedItem(ShoppingTooltip2)
 			if ItemLink then PawnUpdateTooltip("ShoppingTooltip2", "SetHyperlink", ItemLink) end
+			PawnUpdateComparisonSetTooltip(2, ItemLink)
 		end)
 	end
 
@@ -1715,6 +1728,421 @@ function PawnGetItemDataForInventorySlot(Slot, Unenchanted, UnitName)
 	return Item, true
 end
 
+-- Same as PawnGetItemDataForInventorySlot, but if SetItemLinks (from PawnGetEquipmentSetItemLinks) is specified,
+-- the item comes from that equipment set instead of the player's currently-equipped items.
+-- Always returns the base unenchanted item.
+function PawnGetItemDataForComparisonSlot(Slot, SetItemLinks)
+	if not SetItemLinks then return PawnGetItemDataForInventorySlot(Slot, true) end
+	local ItemLink = SetItemLinks[Slot]
+	if not ItemLink then return nil, false end
+	local UnenchantedItem = PawnUnenchantItemLink(ItemLink)
+	if UnenchantedItem then ItemLink = UnenchantedItem end
+	return PawnGetItemData(ItemLink), true
+end
+
+-- Returns true if this version of WoW supports Blizzard equipment sets.  (Some versions have the API even though
+-- VgerCore.EquipmentSetsExist is false for them.)
+function PawnEquipmentSetsAvailable()
+	return C_EquipmentSet ~= nil and C_EquipmentSet.GetEquipmentSetIDs ~= nil and C_EquipmentSet.GetItemLocations ~= nil
+end
+
+-- Unpacks an item location from C_EquipmentSet.GetItemLocations.
+-- Returns: { isPlayer, isBank, isBags, slot, bag }, or nil if it isn't a valid location.
+function PawnUnpackEquipmentSetLocation(Location)
+	if not Location or Location <= 1 then return nil end
+	local _
+	-- Getting the item link for an equipment set item is a pain in the ass...
+	local LocationData
+	if EquipmentManager_GetLocationData then
+		-- WoW 12.0 removed UnpackLocation
+		LocationData = EquipmentManager_GetLocationData(Location)
+	else
+		-- But older versions don't have GetLocationData yet
+		LocationData = {}
+		if VgerCore.IsWrath then
+			-- EquipmentManager_UnpackLocation in Wrath Classic has an extra IsInVoidStorage return value not present in other versions.
+			LocationData.isPlayer, LocationData.isBank, LocationData.isBags, _, LocationData.slot, LocationData.bag = EquipmentManager_UnpackLocation(Location)
+		else
+			LocationData.isPlayer, LocationData.isBank, LocationData.isBags, LocationData.slot, LocationData.bag = EquipmentManager_UnpackLocation(Location)
+		end
+	end
+	if not LocationData or not LocationData.slot then return nil end
+	return LocationData
+end
+
+-- Returns the item link for an item location from C_EquipmentSet.GetItemLocations, or nil if it can't be found.
+function PawnGetItemLinkForEquipmentSetLocation(Location)
+	local LocationData = PawnUnpackEquipmentSetLocation(Location)
+	if not LocationData then return nil end
+	if LocationData.isBags and LocationData.bag then
+		if C_Container and C_Container.GetContainerItemLink then
+			return C_Container.GetContainerItemLink(LocationData.bag, LocationData.slot)
+		else
+			return GetContainerItemLink(LocationData.bag, LocationData.slot)
+		end
+	else
+		-- Equipped items and items in the main bank area are addressed by inventory slot.
+		return GetInventoryItemLink("player", LocationData.slot)
+	end
+end
+
+-- Shows the item at an equipment set location in a tooltip the same way the game shows it there, so that the tooltip has
+-- everything specific to that copy of the item (binding, durability, enchantments, and so on).
+-- Returns true if successful, or false if the item isn't available right now (such as when it's in the bank).
+function PawnSetTooltipToEquipmentSetLocation(Tooltip, Location)
+	if not PawnGetItemLinkForEquipmentSetLocation(Location) then return false end
+	local LocationData = PawnUnpackEquipmentSetLocation(Location)
+	if LocationData.isBags and LocationData.bag then
+		Tooltip:SetBagItem(LocationData.bag, LocationData.slot)
+	else
+		Tooltip:SetInventoryItem("player", LocationData.slot)
+	end
+	return true
+end
+
+-- Returns a table of the items in an equipment set, indexed by inventory slot: { [1] = ItemLink, [2] = false, ... }
+-- Slots that are empty in the set are false.  Slots that the set ignores use the currently-equipped item.
+-- Returns nil if the set doesn't exist.
+function PawnGetEquipmentSetItemLinks(EquipmentSetID)
+	if not PawnEquipmentSetsAvailable() or EquipmentSetID == nil then return nil end
+	local ItemLocations = C_EquipmentSet.GetItemLocations(EquipmentSetID)
+	if not ItemLocations then return nil end
+	local ItemIDs = C_EquipmentSet.GetItemIDs and C_EquipmentSet.GetItemIDs(EquipmentSetID)
+	local SetItemLinks = {}
+	for Slot = 1, 19 do
+		local Location = ItemLocations[Slot]
+		local ItemLink
+		if Location == nil or Location == 1 then -- EQUIPMENT_SET_IGNORED_SLOT
+			ItemLink = GetInventoryItemLink("player", Slot)
+		elseif Location ~= 0 then -- not EQUIPMENT_SET_EMPTY_SLOT
+			ItemLink = PawnGetItemLinkForEquipmentSetLocation(Location)
+			-- If the item is missing or out of reach (such as in the bank), fall back to the base item.
+			local ItemID = ItemIDs and ItemIDs[Slot]
+			if not ItemLink and ItemID and ItemID > 1 then ItemLink = "item:" .. ItemID end
+		end
+		SetItemLinks[Slot] = ItemLink or false
+	end
+	return SetItemLinks
+end
+
+-- Returns the ID of the equipment set that a scale compares items against for the current character, or nil if it
+-- compares against currently-equipped items.  Sets that no longer exist are ignored.
+function PawnGetScaleComparisonSet(ScaleName)
+	if not PawnEquipmentSetsAvailable() then return nil end
+	local Scale = PawnCommon.Scales[ScaleName]
+	local CharacterOptions = Scale and Scale.PerCharacterOptions and Scale.PerCharacterOptions[PawnPlayerFullName]
+	local EquipmentSetID = CharacterOptions and CharacterOptions.ComparisonEquipmentSetID
+	if EquipmentSetID == nil or C_EquipmentSet.GetEquipmentSetInfo(EquipmentSetID) == nil then return nil end
+	return EquipmentSetID
+end
+
+-- Sets the equipment set that a scale compares items against for the current character, or nil to compare against
+-- currently-equipped items.
+function PawnSetScaleComparisonSet(ScaleName, EquipmentSetID)
+	local Scale = PawnCommon.Scales[ScaleName]
+	if not Scale then
+		VgerCore.Fail("PawnSetScaleComparisonSet: ScaleName must be the name of an existing scale.")
+		return
+	end
+	if Scale.PerCharacterOptions == nil then Scale.PerCharacterOptions = {} end
+	if Scale.PerCharacterOptions[PawnPlayerFullName] == nil then Scale.PerCharacterOptions[PawnPlayerFullName] = {} end
+	local CharacterOptions = Scale.PerCharacterOptions[PawnPlayerFullName]
+	if CharacterOptions.ComparisonEquipmentSetID ~= EquipmentSetID then
+		CharacterOptions.ComparisonEquipmentSetID = EquipmentSetID
+		PawnResetTooltips()
+		PawnResetBags()
+	end
+end
+
+-- Returns the equipment sets to show in "currently equipped" comparison tooltips: the comparison sets of the given scales,
+-- in alphabetical order by scale, without duplicates.
+-- Parameters: ScaleNamesToInclude
+--	ScaleNamesToInclude: A table of scale names to check: { ["Scale1"] = true, ... }
+-- Returns: { { ID = EquipmentSetID, Name = EquipmentSetName, ScaleNames = { ["Scale1"] = true, ... } }, ... }
+function PawnGetTooltipComparisonSets(ScaleNamesToInclude)
+	local Sets = {}
+	if not PawnEquipmentSetsAvailable() then return Sets end
+	local ScaleNames = {}
+	for ScaleName in pairs(ScaleNamesToInclude) do
+		if PawnCommon.Scales[ScaleName] and PawnIsScaleVisible(ScaleName) then tinsert(ScaleNames, ScaleName) end
+	end
+	sort(ScaleNames)
+	local SetsByID = {}
+	for _, ScaleName in ipairs(ScaleNames) do
+		local EquipmentSetID = PawnGetScaleComparisonSet(ScaleName)
+		if EquipmentSetID then
+			local Set = SetsByID[EquipmentSetID]
+			if not Set then
+				Set = { ID = EquipmentSetID, Name = (C_EquipmentSet.GetEquipmentSetInfo(EquipmentSetID)), ScaleNames = {} }
+				SetsByID[EquipmentSetID] = Set
+				tinsert(Sets, Set)
+			end
+			Set.ScaleNames[ScaleName] = true
+		end
+	end
+	return Sets
+end
+
+-- Returns the items in the comparison equipment sets that go in the same slot as an equipped item, for each set whose item is
+-- different from the equipped item and isn't equipped anywhere else.  Only the sets of scales for which the hovered item is an
+-- upgrade are included.
+-- Parameters: ItemLink, HoveredItemLink
+--	ItemLink: The equipped item shown in a "currently equipped" tooltip.
+--	HoveredItemLink: The item being compared against the equipped item.
+-- Returns: { { Link = SetItemLink, SetName = EquipmentSetName, Location = Location, UpgradeLines = { "Scale: +15% upgrade", ... } }, ... },
+-- which may be empty.
+--	Location: The item's location from C_EquipmentSet.GetItemLocations.
+--	UpgradeLines: The hovered item's upgrade lines for the scales that use the set.
+function PawnGetComparisonSetItemsForEquippedItem(ItemLink, HoveredItemLink)
+	local Results = {}
+	if not ItemLink or not HoveredItemLink then return Results end
+
+	-- Find the scales for which the hovered item is an upgrade.
+	local HoveredItem = PawnGetItemData(HoveredItemLink)
+	if not HoveredItem then return Results end
+	local _
+	local UpgradeInfo, _, _, _, NeedsEnhancements = PawnIsItemAnUpgrade(HoveredItem)
+	if not UpgradeInfo then return Results end
+	local UpgradeScaleNames = {}
+	for _, Upgrade in pairs(UpgradeInfo) do UpgradeScaleNames[Upgrade.ScaleName] = true end
+
+	local Sets = PawnGetTooltipComparisonSets(UpgradeScaleNames)
+	if #Sets == 0 then return Results end
+
+	-- Figure out which slot the item is equipped in.
+	local EquippedSlot
+	local UnenchantedItemLink = PawnUnenchantItemLink(ItemLink, true)
+	for Slot = 1, 19 do
+		local EquippedItemLink = GetInventoryItemLink("player", Slot)
+		if EquippedItemLink == ItemLink then
+			EquippedSlot = Slot
+			break
+		elseif EquippedItemLink and not EquippedSlot and UnenchantedItemLink and PawnUnenchantItemLink(EquippedItemLink, true) == UnenchantedItemLink then
+			EquippedSlot = Slot -- keep looking for an exact match, though
+		end
+	end
+	if not EquippedSlot then return Results end
+
+	local ShownItems = {}
+	for _, Set in ipairs(Sets) do
+		local SetItemLinks = PawnGetEquipmentSetItemLinks(Set.ID)
+		local SetItemLink = SetItemLinks and SetItemLinks[EquippedSlot]
+		local UnenchantedSetItemLink = SetItemLink and PawnUnenchantItemLink(SetItemLink, true)
+		local UpgradeLines = {}
+		for _, Upgrade in ipairs(UpgradeInfo) do
+			if Set.ScaleNames[Upgrade.ScaleName] then tinsert(UpgradeLines, PawnGetUpgradeTooltipLine(Upgrade, NeedsEnhancements)) end
+		end
+		-- Skip sets with nothing in this slot and sets that use the item already shown.
+		local ShowThisItem = SetItemLink and SetItemLink ~= ItemLink and UnenchantedSetItemLink ~= UnenchantedItemLink
+		if ShowThisItem and ShownItems[UnenchantedSetItemLink] then
+			-- Another set has the same item, so just add this set's upgrades to that one.
+			for _, Line in ipairs(UpgradeLines) do tinsert(ShownItems[UnenchantedSetItemLink].UpgradeLines, Line) end
+			ShowThisItem = false
+		end
+		if ShowThisItem then
+			-- If the set's item is equipped anywhere (such as rings or weapons in the other slot), there's nothing extra to show.
+			for Slot = 1, 19 do
+				local EquippedItemLink = GetInventoryItemLink("player", Slot)
+				if EquippedItemLink and (EquippedItemLink == SetItemLink or PawnUnenchantItemLink(EquippedItemLink, true) == UnenchantedSetItemLink) then
+					ShowThisItem = false
+					break
+				end
+			end
+		end
+		if ShowThisItem then
+			local ItemLocations = C_EquipmentSet.GetItemLocations(Set.ID)
+			local Result = { Link = SetItemLink, SetName = Set.Name, Location = ItemLocations and ItemLocations[EquippedSlot], UpgradeLines = UpgradeLines }
+			ShownItems[UnenchantedSetItemLink] = Result
+			tinsert(Results, Result)
+		end
+	end
+	return Results
+end
+
+-- Extra tooltips shown next to the "currently equipped" comparison tooltips (ShoppingTooltip1 and 2) for the comparison
+-- equipment set's items, when those aren't the ones equipped.
+local PawnComparisonSetTooltips = {}
+
+-- Adds the "If you replace this item, the following stat changes will occur" section to a tooltip, like the one on the
+-- "currently equipped" tooltips.
+local function PawnAddStatChangesToTooltip(Tooltip, NewItemLink, ExistingItemLink)
+	if not NewItemLink or not ExistingItemLink then return end
+
+	-- Get the same lines that the game shows, in the same order (TooltipComparisonManager:SetItemTooltip).
+	local Lines
+	if C_TooltipComparison and C_TooltipComparison.GetItemComparisonDelta then
+		local Succeeded, Result = pcall(C_TooltipComparison.GetItemComparisonDelta, { hyperlink = NewItemLink }, { hyperlink = ExistingItemLink })
+		if Succeeded and type(Result) == "table" then Lines = Result end
+	end
+
+	if not Lines then
+		-- Older versions don't have that, so build the lines ourselves, with only the amount colored like the game does.
+		local GetItemStatDelta = (C_Item and C_Item.GetItemStatDelta) or GetItemStatDelta
+		local Deltas = GetItemStatDelta and GetItemStatDelta(NewItemLink, ExistingItemLink)
+		if not Deltas then return end
+		Lines = {}
+		for StatKey, Delta in pairs(Deltas) do
+			local StatName = _G[StatKey]
+			if StatName and Delta ~= 0 then
+				local Amount = Delta == math.floor(Delta) and format("%d", Delta) or format("%.1f", Delta)
+				local Color = Delta > 0 and GREEN_FONT_COLOR or RED_FONT_COLOR
+				if Delta > 0 then Amount = "+" .. Amount end
+				tinsert(Lines, format("|cff%02x%02x%02x%s|r %s", math.floor(Color.r * 255 + .5), math.floor(Color.g * 255 + .5), math.floor(Color.b * 255 + .5), Amount, StatName))
+			end
+		end
+	end
+	if #Lines == 0 then return end
+
+	Tooltip:AddLine(" ")
+	Tooltip:AddLine(ITEM_DELTA_DESCRIPTION or "If you replace this item, the following stat changes will occur:", NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, true)
+	for _, Line in ipairs(Lines) do
+		Tooltip:AddLine(Line, HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b)
+	end
+end
+
+-- Adds Pawn's values and the stat changes to a comparison set tooltip after its item has been set.
+local function PawnDecorateComparisonSetTooltip(Tooltip)
+	if not Tooltip.PawnItemLink then return end
+	PawnUpdateTooltip(Tooltip:GetName(), "SetHyperlink", Tooltip.PawnItemLink)
+	if not Tooltip.PawnTab then
+		-- Without a tab to put the hovered item's upgrades in, add them at the bottom instead.
+		for _, Line in ipairs(Tooltip.PawnUpgradeLines or {}) do PawnAddTooltipLine(Tooltip, Line) end
+	end
+	PawnAddStatChangesToTooltip(Tooltip, Tooltip.PawnHoveredItemLink, Tooltip.PawnItemLink)
+	Tooltip:Show()
+end
+
+-- Updates the tab on top of a comparison set tooltip, which shows the hovered item's upgrades for that set, like the "Equipped"
+-- tab on the "currently equipped" tooltips.
+local function PawnUpdateComparisonSetTab(Tooltip)
+	local Tab = Tooltip.PawnTab
+	if not Tab then return end
+	local Lines = Tooltip.PawnUpgradeLines
+	if not Lines or #Lines == 0 then
+		Tab:Hide()
+		Tooltip:SetClampRectInsets(0, 0, 0, 0)
+		return
+	end
+	Tab.Text:SetText(table.concat(Lines, "\n"))
+	-- (Same padding as the "Equipped" tab: 15 on each side, 5 on the top and bottom.)
+	Tab:SetSize(Tab.Text:GetStringWidth() + 30, Tab.Text:GetStringHeight() + 10)
+	-- Tuck the bottom of the tab under the tooltip, and keep the tab on the screen too.
+	Tab:SetFrameLevel(math.max(Tooltip:GetFrameLevel() - 1, 0))
+	Tooltip:SetClampRectInsets(0, 0, Tab:GetHeight(), 0)
+	Tab:Show()
+end
+
+-- Keeps a comparison set tooltip in a row with the others, next to the outermost "currently equipped" tooltip.
+local function PawnComparisonSetTooltip_OnUpdate(self)
+	local ShoppingTooltip = self.PawnShoppingTooltip
+	if not ShoppingTooltip:IsShown() then self:Hide() return end
+	local MainCenter, ShoppingCenter = GameTooltip:GetCenter(), ShoppingTooltip1:GetCenter()
+	if not MainCenter or not ShoppingCenter then return end
+	local OnRight = ShoppingCenter >= MainCenter
+
+	-- Start from the outermost visible comparison tooltip, then go past the comparison set tooltips that come before this one.
+	local Anchor = ShoppingTooltip1
+	if ShoppingTooltip2:IsShown() and ShoppingTooltip2:GetLeft() and Anchor:GetLeft() then
+		if (OnRight and ShoppingTooltip2:GetLeft() > Anchor:GetLeft()) or (not OnRight and ShoppingTooltip2:GetLeft() < Anchor:GetLeft()) then Anchor = ShoppingTooltip2 end
+	end
+	local PreviousOrder
+	for Order, Other in pairs(PawnComparisonSetTooltips) do
+		if Order < self.PawnOrder and Other:IsShown() and (PreviousOrder == nil or Order > PreviousOrder) then
+			PreviousOrder = Order
+			Anchor = Other
+		end
+	end
+
+	self:ClearAllPoints()
+	if OnRight then
+		self:SetPoint("TOPLEFT", Anchor, "TOPRIGHT", 0, 0)
+	else
+		self:SetPoint("TOPRIGHT", Anchor, "TOPLEFT", 0, 0)
+	end
+end
+
+-- Returns the comparison set tooltip for set number SetNumber next to "currently equipped" tooltip number Index (1 or 2),
+-- creating it if necessary.
+local PawnMaxComparisonSetsPerTooltip = 5
+local function PawnGetComparisonSetTooltip(Index, SetNumber)
+	local Order = (Index - 1) * PawnMaxComparisonSetsPerTooltip + SetNumber
+	local Tooltip = PawnComparisonSetTooltips[Order]
+	if Tooltip then return Tooltip end
+	Tooltip = CreateFrame("GameTooltip", "PawnComparisonSetTooltip" .. Index .. "_" .. SetNumber, UIParent, "GameTooltipTemplate")
+	Tooltip:SetFrameStrata("TOOLTIP")
+	Tooltip:SetClampedToScreen(true)
+	Tooltip.PawnIndex = Index
+	Tooltip.PawnOrder = Order
+	Tooltip.PawnShoppingTooltip = _G["ShoppingTooltip" .. Index]
+	if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("tooltip-compare-label") then
+		-- Build the tab the same way as the "Equipped" tab (ShoppingTooltip1.CompareHeader).
+		local Tab = CreateFrame("Frame", nil, Tooltip)
+		Tab:SetPoint("BOTTOMLEFT", Tooltip, "TOPLEFT", 0, -1)
+		local Background = Tab:CreateTexture(nil, "BACKGROUND")
+		Background:SetAtlas("tooltip-compare-label")
+		Background:SetAllPoints()
+		Tab.Text = Tab:CreateFontString(nil, "ARTWORK", "GameTooltipText")
+		Tab.Text:SetPoint("CENTER")
+		Tab.Text:SetJustifyH("LEFT")
+		Tab.Text:SetTextColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+		Tab:Hide()
+		Tooltip.PawnTab = Tab
+	end
+	Tooltip:HookScript("OnUpdate", PawnComparisonSetTooltip_OnUpdate)
+	Tooltip:HookScript("OnHide", function(self) self.PawnItemLink = nil end)
+	-- In 11.0+, the tooltip can refresh itself, which would wipe out Pawn's lines, so add them back every time.
+	if Tooltip.ProcessInfo then hooksecurefunc(Tooltip, "ProcessInfo", PawnDecorateComparisonSetTooltip) end
+	Tooltip.PawnShoppingTooltip:HookScript("OnHide", function() Tooltip:Hide() end)
+	PawnComparisonSetTooltips[Order] = Tooltip
+	return Tooltip
+end
+
+-- Called when "currently equipped" tooltip number Index (1 or 2) shows ItemLink.  For each comparison equipment set that has a
+-- different item in that slot and that belongs to a scale for which the item in the main tooltip is an upgrade, shows that set's
+-- item in another tooltip next to the "currently equipped" ones.
+function PawnUpdateComparisonSetTooltip(Index, ItemLink)
+	local _, HoveredItemLink = GameTooltip:GetItem()
+	local SetItems = PawnGetComparisonSetItemsForEquippedItem(ItemLink, HoveredItemLink)
+	if #SetItems > PawnMaxComparisonSetsPerTooltip then
+		-- Don't fill the screen with tooltips; just show the first few.
+		for i = #SetItems, PawnMaxComparisonSetsPerTooltip + 1, -1 do tremove(SetItems, i) end
+	end
+
+	for SetNumber, SetItem in ipairs(SetItems) do
+		local Tooltip = PawnGetComparisonSetTooltip(Index, SetNumber)
+		local UpgradeText = table.concat(SetItem.UpgradeLines, "\n")
+		-- If it's already showing this item compared to the same hovered item, just update the upgrades.  (Without a tab, the upgrades
+		-- are part of the tooltip.)
+		local AlreadyShowing = Tooltip:IsShown() and Tooltip.PawnItemLink == SetItem.Link and Tooltip.PawnHoveredItemLink == HoveredItemLink and
+			(Tooltip.PawnTab or Tooltip.PawnUpgradeText == UpgradeText)
+		if not AlreadyShowing then
+			Tooltip:SetOwner(UIParent, "ANCHOR_NONE") -- (do this first, since it can hide the tooltip and clear the fields below)
+			Tooltip.PawnItemLink = SetItem.Link
+			Tooltip.PawnHoveredItemLink = HoveredItemLink
+		end
+		Tooltip.PawnUpgradeLines = SetItem.UpgradeLines
+		Tooltip.PawnUpgradeText = UpgradeText
+		if not AlreadyShowing then
+			-- Prefer showing the actual item from wherever it is; a hyperlink only has the item's generic information.
+			if not PawnSetTooltipToEquipmentSetLocation(Tooltip, SetItem.Location) then Tooltip:SetHyperlink(SetItem.Link) end
+			if not Tooltip.ProcessInfo then PawnDecorateComparisonSetTooltip(Tooltip) end
+		end
+		PawnUpdateComparisonSetTab(Tooltip)
+	end
+
+	-- Hide this comparison tooltip's set tooltips that aren't needed anymore, then line up the rest.
+	for _, Tooltip in pairs(PawnComparisonSetTooltips) do
+		if Tooltip.PawnIndex == Index and Tooltip.PawnOrder - (Index - 1) * PawnMaxComparisonSetsPerTooltip > #SetItems then Tooltip:Hide() end
+	end
+	local Orders = {}
+	for Order in pairs(PawnComparisonSetTooltips) do tinsert(Orders, Order) end
+	sort(Orders)
+	for _, Order in ipairs(Orders) do
+		local Tooltip = PawnComparisonSetTooltips[Order]
+		if Tooltip:IsShown() then PawnComparisonSetTooltip_OnUpdate(Tooltip) end
+	end
+end
+
 -- Recalculates the scale values for a cached item if necessary, and returns them.
 --	 Parameters: Item, NoNormalization
 --		Item: The item to update.
@@ -1944,6 +2372,36 @@ function PawnGetAllItemValues(Item, ItemLevel, SocketBonus, UnenchantedItem, Une
 	return ItemValues
 end
 
+-- Returns the name to show for a scale in tooltips: the spec name for the player's class's built-in scales, with the spec icon
+-- if enabled.
+function PawnGetScaleTooltipName(ScaleName, LocalizedName)
+	local Scale = PawnCommon.Scales[ScaleName]
+	if not Scale then return LocalizedName end
+	local _, _, ClassID = UnitClass("player")
+	-- Override the localized name if the scale was designed for only the current class, and it's not a user scale.
+	if Scale.ClassID == ClassID and Scale.SpecID and Scale.Provider then
+		local _, LocalizedSpecName = PawnGetSpecializationInfoForClassID(ClassID, Scale.SpecID)
+		LocalizedName = LocalizedSpecName
+	end
+	-- Add the spec icon if present, and if that feature isn't disabled.
+	if PawnCommon.ShowSpecIcons and Scale.IconTexturePath then
+		LocalizedName = "|T" .. Scale.IconTexturePath .. ":0|t " .. LocalizedName
+	end
+	return LocalizedName
+end
+
+-- Returns a line of text like "Scale: +15% upgrade" for an entry from the UpgradeInfo table returned by PawnIsItemAnUpgrade.
+function PawnGetUpgradeTooltipLine(Upgrade, NeedsEnhancements)
+	local ScaleText = format(PawnNoValueAnnotationFormat, PawnGetScaleColor(Upgrade.ScaleName), PawnGetScaleTooltipName(Upgrade.ScaleName, Upgrade.LocalizedScaleName))
+	if Upgrade.PercentUpgrade >= PawnBigUpgradeThreshold then
+		return format(PawnLocal.TooltipBigUpgradeAnnotation, ScaleText, "")
+	elseif NeedsEnhancements then
+		return format(PawnLocal.TooltipUpgradeNeedsEnhancementsAnnotation, ScaleText, 100 * Upgrade.PercentUpgrade, "")
+	else
+		return format(PawnLocal.TooltipUpgradeAnnotation, ScaleText, 100 * Upgrade.PercentUpgrade, "")
+	end
+end
+
 -- Adds an array of item values to a tooltip, handling formatting options.
 -- Parameters: Tooltip, ItemValues, UpgradeInfo, BestItemFor, SecondBestItemFor, InvType, OnlyFirstValue
 -- 	Tooltip: The tooltip to annotate.  (Not a name.)
@@ -1961,7 +2419,6 @@ function PawnAddValuesToTooltip(Tooltip, ItemValues, UpgradeInfo, BestItemFor, S
 	if not ItemValues then return end
 
 	-- Loop through all of the item value subtables.
-	local _, _, ClassID = UnitClass("player")
 	for _, Entry in pairs(ItemValues) do
 		local ScaleName, Value, UnenchantedValue, LocalizedName = Entry[1], Entry[2], Entry[3], Entry[4]
 		local Scale = PawnCommon.Scales[ScaleName]
@@ -1975,15 +2432,7 @@ function PawnAddValuesToTooltip(Tooltip, ItemValues, UpgradeInfo, BestItemFor, S
 				if not PawnCommon.ShowEnchanted then Value = 0 end
 			end
 
-			-- Override the localized name if the scale was designed for only the current class, and it's not a user scale.
-			if Scale.ClassID == ClassID and Scale.SpecID and Scale.Provider then
-				local _, LocalizedSpecName = PawnGetSpecializationInfoForClassID(ClassID, Scale.SpecID)
-				LocalizedName = LocalizedSpecName
-			end
-			-- Add the spec icon if present, and if that feature isn't disabled.
-			if PawnCommon.ShowSpecIcons and Scale.IconTexturePath then
-				LocalizedName = "|T" .. Scale.IconTexturePath .. ":0|t " .. LocalizedName
-			end
+			LocalizedName = PawnGetScaleTooltipName(ScaleName, LocalizedName)
 
 			local TooltipText
 			local TextColor = PawnGetScaleColor(ScaleName)
@@ -3610,41 +4059,19 @@ function PawnRefreshCachedItem(Item)
 	return true
 end
 
--- Determines if an item is an upgrade for any of the current user's enabled scales, and if so, by how much.
--- Parameters:
+-- Checks whether an item can be compared against the player's weapons for upgrades: 1H items aren't upgrades when using a 2H
+-- weapon and vice-versa, and weapons are only compared by item level if an artifact is involved.
+-- Parameters: Item, MainWeaponLink
 --	Item: The item table for the item in question.
---	DoNotRescan: If best item data is not available, just return nil instead of rescanning.
--- Returns nothing if the item is not an upgrade and is not one of the player's best items.  Otherwise:
---	UpgradeInfo, ItemLevelIncrease, BestItemFor, SecondBestItemFor, NeedsEnhancements
---	UpgradeInfo: a sorted table of upgrades, with each element being another table:
---		{ { ScaleName, LocalizedScaleName, PercentUpgrade, ExistingItem }, ... }
---		ScaleName: the raw scale name.
---		LocalizedScaleName: the localized scale name, suitable for display.
---		PercentUpgrade: for example, for an item that is a 15% upgrade over the current item, .15.
---		ExistingItemLink: the item that would be replaced if the user upgraded to the item passed in, in its unenchanted (not display-ready) form.
---	ItemLevelIncrease: the number of item levels that this item increases the player's score, or nil if it's not an item level upgrade.
---	BestItemFor, SecondBestItemFor: a table of scales for which this item is already the player's best or second-best item, or nil if none.
---		{ ["Scale1"] = true, ["Scale2"] = true }
---	NeedsEnhancements: true if the item requires enhancements (Valor or Empowered Apexis Fragment).
-function PawnIsItemAnUpgrade(Item, DoNotRescan)
-
-	-- Before we begin, check for unsupported item types and bail out early if appropriate.
-	if Item and type(Item) ~= "table" then
-		VgerCore.Fail("Item must be a table of item stats, not '" .. type(Item) .. "'.")
-		return
-	end
+--	MainWeaponLink: The item link of the weapon in the main hand (or off hand if the main hand is empty), or nil.
+-- Returns: SkipScoreBasedUpgrades, CompareUsingItemLevelOnly
+function PawnCheckWeaponCompatibility(Item, MainWeaponLink)
 	-- If an artifact is involved, we only compare using item level, since artifacts are complicated and one item can fill multiple slots.
-	local CompareUsingItemLevelOnly = (Item.Rarity == 6)
+	local SkipScoreBasedUpgrades, CompareUsingItemLevelOnly = false, (Item.Rarity == 6)
 	local InvType = Item.InvType
-	if not InvType or InvType == "" or InvType == "INVTYPE_BAG" or InvType == "INVTYPE_QUIVER" or InvType == "INVTYPE_TABARD" or InvType == "INVTYPE_BODY" or ((not VgerCore.RangedSlotExists) and (InvType == "INVTYPE_THROWN" or InvType == "INVTYPE_AMMO" or InvType == "INVTYPE_RELIC")) then return nil end
-	local SkipScoreBasedUpgrades = InvType == "INVTYPE_TRINKET" or PawnGetSlotsForItemType(InvType) == nil
-	local UnenchantedItemLink, NeedsEnhancements = PawnUnenchantItemLink(Item.Link, true)
-	VgerCore.Assert(UnenchantedItemLink ~= nil, "PawnIsItemAnUpgrade failed to get an item link for item " .. tostring(Item.ID))
-
 	if InvType == "INVTYPE_WEAPON" or InvType == "INVTYPE_WEAPONMAINHAND" or InvType == "INVTYPE_WEAPONOFFHAND" or InvType == "INVTYPE_SHIELD" or InvType == "INVTYPE_HOLDABLE" or InvType == "INVTYPE_2HWEAPON" or InvType == "INVTYPE_RANGED" then
 		-- Don't show 1H upgrades if using a 2H item, and vice-versa.
 		-- And, don't show any weapons or off-hands as upgrades if they have an artifact equipped.
-		local MainWeaponLink = GetInventoryItemLink("player", INVSLOT_MAINHAND) or GetInventoryItemLink("player", INVSLOT_OFFHAND)
 		if MainWeaponLink then
 			local MainWeapon = PawnGetItemData(MainWeaponLink)
 			if MainWeapon then
@@ -3668,6 +4095,41 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 			end
 		end
 	end -- if InvType == ...
+	return SkipScoreBasedUpgrades, CompareUsingItemLevelOnly
+end
+
+-- Determines if an item is an upgrade for any of the current user's enabled scales, and if so, by how much.
+-- Parameters:
+--	Item: The item table for the item in question.
+--	DoNotRescan: If best item data is not available, just return nil instead of rescanning.
+-- Returns nothing if the item is not an upgrade and is not one of the player's best items.  Otherwise:
+--	UpgradeInfo, ItemLevelIncrease, BestItemFor, SecondBestItemFor, NeedsEnhancements
+--	UpgradeInfo: a sorted table of upgrades, with each element being another table:
+--		{ { ScaleName, LocalizedScaleName, PercentUpgrade, ExistingItem }, ... }
+--		ScaleName: the raw scale name.
+--		LocalizedScaleName: the localized scale name, suitable for display.
+--		PercentUpgrade: for example, for an item that is a 15% upgrade over the current item, .15.
+--		ExistingItemLink: the item that would be replaced if the user upgraded to the item passed in, in its unenchanted (not display-ready) form.
+--	ItemLevelIncrease: the number of item levels that this item increases the player's score, or nil if it's not an item level upgrade.
+--	BestItemFor, SecondBestItemFor: a table of scales for which this item is already the player's best or second-best item, or nil if none.
+--		{ ["Scale1"] = true, ["Scale2"] = true }
+--	NeedsEnhancements: true if the item requires enhancements (Valor or Empowered Apexis Fragment).
+function PawnIsItemAnUpgrade(Item, DoNotRescan)
+
+	-- Before we begin, check for unsupported item types and bail out early if appropriate.
+	if Item and type(Item) ~= "table" then
+		VgerCore.Fail("Item must be a table of item stats, not '" .. type(Item) .. "'.")
+		return
+	end
+	local InvType = Item.InvType
+	if not InvType or InvType == "" or InvType == "INVTYPE_BAG" or InvType == "INVTYPE_QUIVER" or InvType == "INVTYPE_TABARD" or InvType == "INVTYPE_BODY" or ((not VgerCore.RangedSlotExists) and (InvType == "INVTYPE_THROWN" or InvType == "INVTYPE_AMMO" or InvType == "INVTYPE_RELIC")) then return nil end
+	local SkipScoreBasedUpgrades = InvType == "INVTYPE_TRINKET" or PawnGetSlotsForItemType(InvType) == nil
+	local UnenchantedItemLink, NeedsEnhancements = PawnUnenchantItemLink(Item.Link, true)
+	VgerCore.Assert(UnenchantedItemLink ~= nil, "PawnIsItemAnUpgrade failed to get an item link for item " .. tostring(Item.ID))
+
+	-- Compare against currently-equipped weapons, unless a scale is set to compare against an equipment set instead.
+	local EquippedWeaponLink = GetInventoryItemLink("player", INVSLOT_MAINHAND) or GetInventoryItemLink("player", INVSLOT_OFFHAND)
+	local EquippedSkipScoreBasedUpgrades, EquippedCompareUsingItemLevelOnly = PawnCheckWeaponCompatibility(Item, EquippedWeaponLink)
 
 	local _
 	local UpgradeTable, BestItemTable, SecondBestItemTable
@@ -3675,7 +4137,18 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 		for ScaleName, Scale in pairs(PawnCommon.Scales) do
 			InvType = Item.InvType -- need to reset this here since it gets nil'ed out in the coming while loop
 
-			if PawnIsScaleVisible(ScaleName) and not
+			-- If this scale compares against an equipment set, use the items from that set instead of what's equipped.
+			local SetItemLinks = PawnGetEquipmentSetItemLinks(PawnGetScaleComparisonSet(ScaleName))
+			local SkipScale, CompareUsingItemLevelOnly
+			if SetItemLinks then
+				SkipScale, CompareUsingItemLevelOnly = PawnCheckWeaponCompatibility(Item, SetItemLinks[INVSLOT_MAINHAND] or SetItemLinks[INVSLOT_OFFHAND])
+			else
+				SkipScale, CompareUsingItemLevelOnly = EquippedSkipScoreBasedUpgrades, EquippedCompareUsingItemLevelOnly
+			end
+			-- Upgrade tracking compares against the best items the player has had, so it doesn't apply to equipment sets.
+			local UseUpgradeTracking = PawnOptions.UpgradeTracking and not SetItemLinks
+
+			if not SkipScale and PawnIsScaleVisible(ScaleName) and not
 				(Scale.DoNotShow1HUpgrades and (InvType == "INVTYPE_WEAPON" or InvType == "INVTYPE_WEAPONMAINHAND" or InvType == "INVTYPE_WEAPONOFFHAND" or InvType == "INVTYPE_SHIELD" or InvType == "INVTYPE_HOLDABLE")) and not
 				(Scale.DoNotShow2HUpgrades and InvType == "INVTYPE_2HWEAPON") and
 				(PawnIsArmorBestTypeForPlayer(Item))
@@ -3686,7 +4159,7 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 					VgerCore.Fail("PerCharacterOptions should be initialized before using PawnIsItemAnUpgrade.")
 					return nil
 				end
-				if PawnOptions.UpgradeTracking and not CharacterOptions.BestItems then
+				if UseUpgradeTracking and not CharacterOptions.BestItems then
 					if DoNotRescan then return nil end
 					-- If best item data hasn't been calculated yet, go ahead and calculate it now.
 					PawnFindBestItems(ScaleName)
@@ -3697,11 +4170,11 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 				if InvType == "INVTYPE_WEAPON" then
 					-- Check one-handed weapons against both the main hand and off hand, and report the best upgrade.
 					-- (One-handed weapons aren't stored past the initial scan, so we don't need to check those.)
-					if PawnOptions.UpgradeTracking then InvType = "INVTYPE_WEAPONMAINHAND" end
+					if UseUpgradeTracking then InvType = "INVTYPE_WEAPONMAINHAND" end
 					if Scale.Values.IsOffHand == nil or Scale.Values.IsOffHand > PawnIgnoreStatValue then
 						-- Only try putting off-hand weapons in the off hand if they fit there!
 						-- And don't bother if upgrade tracking is off; we'll check both weapon slots anyway.
-						if PawnOptions.UpgradeTracking then InvType2 = "INVTYPE_WEAPONOFFHAND" end
+						if UseUpgradeTracking then InvType2 = "INVTYPE_WEAPONOFFHAND" end
 						TwoSlotsForThisItemType = true
 					end
 				elseif InvType == "INVTYPE_ROBE" then
@@ -3721,21 +4194,24 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 
 				while InvType do
 					local BestData
-					if PawnOptions.UpgradeTracking and not CompareUsingItemLevelOnly then
+					if UseUpgradeTracking and not CompareUsingItemLevelOnly then
 						BestData = CharacterOptions.BestItems[InvType]
 					else
-						-- If upgrade tracking is disabled, manually create a BestData table based on the currently-equipped items for this slot.
+						-- If upgrade tracking is disabled, manually create a BestData table based on the currently-equipped items for this slot
+						-- (or the items in this scale's equipment set).
 						local Slot1, Slot2, Item1, Item2, SlotHadItem1, SlotHadItem2, ItemLink1, ItemLink2, Value1, Value2
 						Slot1 = PawnItemEquipLocToSlot1[InvType]
-						if Slot1 then Item1, SlotHadItem1 = PawnGetItemDataForInventorySlot(Slot1, true) end
+						if Slot1 then Item1, SlotHadItem1 = PawnGetItemDataForComparisonSlot(Slot1, SetItemLinks) end
 						if SlotHadItem1 and not Item1 then return end -- If there is an item in the slot but we don't have data yet, we can't evaluate upgrades yet.
 						if Item1 then ItemLink1 = PawnUnenchantItemLink(Item1.Link, true) end
-						if not TwoSlotsForThisItemType and ItemLink1 and UnenchantedItemLink == ItemLink1 then return end -- If this item is already equipped, it can't be an upgrade for any scale.
+						-- If this item is already equipped, it can't be an upgrade for any scale.  (If it's in this scale's equipment set, it's
+						-- the best item for just this scale, which is handled below.)
+						if not SetItemLinks and not TwoSlotsForThisItemType and ItemLink1 and UnenchantedItemLink == ItemLink1 then return end
 						if TwoSlotsForThisItemType then Slot2 = PawnItemEquipLocToSlot2[InvType] end -- Don't check the off-hand slot for weapon upgrades if they can't dual-wield
-						if Slot2 then Item2, SlotHadItem2 = PawnGetItemDataForInventorySlot(Slot2, true) end
+						if Slot2 then Item2, SlotHadItem2 = PawnGetItemDataForComparisonSlot(Slot2, SetItemLinks) end
 						if SlotHadItem2 and not Item2 then return end -- If there is an item in the slot but we don't have data yet, we can't evaluate upgrades yet.
 						if Item2 then ItemLink2 = PawnUnenchantItemLink(Item2.Link, true) end
-						if not TwoSlotsForThisItemType and Item2 and ItemLink2 and UnenchantedItemLink == PawnUnenchantItemLink(Item2.Link, true) then return end
+						if not SetItemLinks and not TwoSlotsForThisItemType and Item2 and ItemLink2 and UnenchantedItemLink == PawnUnenchantItemLink(Item2.Link, true) then return end
 						VgerCore.Assert(Value1 == nil and Value2 == nil, "Where's the value coming from?")
 						if CompareUsingItemLevelOnly then
 							if Item1 then Value1 = Item1.Level end
@@ -4042,31 +4518,7 @@ function PawnFindBestItems(ScaleName, InventoryOnly)
 			for Slot = 1, 18 do if Slot ~= 4 and Slot ~= 13 and Slot ~= 14 then
 				local Location = ItemLocations[Slot]
 				if Location and Location > 1 then
-					-- Getting the item link for an equipment set item is a pain in the ass...
-					local ItemLink
-					local LocationData
-					if EquipmentManager_GetLocationData then
-						-- WoW 12.0 removed UnpackLocation
-						LocationData = EquipmentManager_GetLocationData(Location)
-					else
-						-- But older versions don't have GetLocationData yet
-						LocationData = {}
-						if VgerCore.IsWrath then
-							-- EquipmentManager_UnpackLocation in Wrath Classic has an extra IsInVoidStorage return value not present in other versions.
-							LocationData.isPlayer, LocationData.isBank, LocationData.isBags, _, LocationData.slot, LocationData.bag = EquipmentManager_UnpackLocation(Location)
-						else
-							LocationData.isPlayer, LocationData.isBank, LocationData.isBags, LocationData.slot, LocationData.bag = EquipmentManager_UnpackLocation(Location)
-						end
-					end
-					if LocationData.isPlayer then
-						ItemLink = GetInventoryItemLink("player", LocationData.slot)
-					else -- isBags or isBank
-						if C_Container and C_Container.GetContainerItemLink then
-							ItemLink = C_Container.GetContainerItemLink(LocationData.bag, LocationData.slot)
-						else
-							ItemLink = GetContainerItemLink(LocationData.bag, LocationData.slot)
-						end
-					end
+					local ItemLink = PawnGetItemLinkForEquipmentSetLocation(Location)
 
 					-- Now that we have an item link we can proceed as usual.
 					if ItemLink then

@@ -448,6 +448,9 @@ If unchecked, equipping a two-handed weapon will prevent Pawn from showing you u
 		["ScaleSelectorShowScaleTooltip"] = [=[When this option is checked, values for this scale will show up in item tooltips for this character.  Each scale can show up for one of your characters, multiple characters, or no characters at all.
 
 Shortcut: Shift+click a scale]=],
+		["ScaleComparisonSet"] = "Compare against:",
+		["ScaleComparisonSetEquipped"] = "Equipped items",
+		["ScaleComparisonSetTooltip"] = "Choose an equipment set for Pawn to compare items against when suggesting upgrades for this scale on this character, instead of the items you have equipped.  Items in the set's ignored slots are compared against what you have equipped.",
 		["ScaleShareHeader"] = "Поделиться вашими шкалами",
 		["ScaleTab"] = "Шкалы",
 		["ScaleTypeNormal"] = "Вы можете изменить шкалу на закладке Значения.",
