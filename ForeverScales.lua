@@ -5,10 +5,10 @@
 --
 -- WoW Forever scales
 -- Druid weights from Pawn Forever 1.2.0 (https://github.com/turlockmike/pawn-forever, MIT license), which converts the
--- Forever weight tables in GearQuest Forever by Henrik8210 to Pawn's units.  Restoration Spirit is set to 0.35 times Mp5:
+-- Forever weight tables in GearQuest Forever by weber8210 to Pawn's units.  Restoration Spirit is set to 0.35 times Mp5:
 -- with Forever's 50% Reflection, a point of Spirit is worth about 0.25 Mp5 while casting and 0.5 Mp5 while not.
--- Leveling scales use GearQuest's leveling multipliers (Stamina x3; Armor, Intellect, Spirit, and Mp5 x2).  Cat doesn't
--- have a separate leveling scale, since those multipliers barely change it.
+-- There are no leveling scales: GearQuest's leveling weights multiply the same few stats for every class and spec by
+-- fixed amounts that aren't based on anything in Forever.
 ------------------------------------------------------------
 
 local ScaleProviderName = "Forever"
@@ -47,22 +47,12 @@ function PawnForeverScaleProvider_AddScales()
 		Stamina = 0.12, Armor = 0.006, DodgeRating = 1.2, DefenseRating = 0.02, Hp5 = 0.05, Intellect = 0.03, Mp5 = 0.02, Spirit = 0.01 }
 	))
 
-	AddDruidScale("DruidBearLeveling", "Druid: Bear (leveling)", 3, WithResists(
-		{ Stamina = 3, Agility = 0.55, Strength = 0.35, MeleeDps = 4.9, Ap = 0.18, FeralAp = 0.18, Armor = 0.2, DefenseRating = 0.85, DodgeRating = 8.4,
-		HitRating = 4, CritRating = 3.5, ExpertiseRating = 6, HasteRating = 1, Hp5 = 0.15, Intellect = 0.1, Mp5 = 0.1, Spirit = 0.04 }
-	))
-
-	AddDruidScale("DruidBear", "Druid: Bear (60)", 3, WithResists(
+	AddDruidScale("DruidBear", "Druid: Bear", 3, WithResists(
 		{ Stamina = 1, Agility = 0.55, Strength = 0.35, MeleeDps = 4.9, Ap = 0.18, FeralAp = 0.18, Armor = 0.1, DefenseRating = 0.85, DodgeRating = 8.4,
 		HitRating = 4, CritRating = 3.5, ExpertiseRating = 6, HasteRating = 1, Hp5 = 0.05, Intellect = 0.05, Mp5 = 0.05, Spirit = 0.02 }
 	))
 
-	AddDruidScale("DruidRestorationLeveling", "Druid: Restoration (leveling)", 4, WithResists(
-		{ Healing = 1, SpellDamage = 0.3, Intellect = 1.1, Spirit = 1.54, Mp5 = 4.4, CritRating = 4.9, HasteRating = 4,
-		Stamina = 0.24, Armor = 0.008, Agility = 0.05, DodgeRating = 0.6, DefenseRating = 0.02, Hp5 = 0.15 }
-	))
-
-	AddDruidScale("DruidRestoration", "Druid: Restoration (60)", 4, WithResists(
+	AddDruidScale("DruidRestoration", "Druid: Restoration", 4, WithResists(
 		{ Healing = 1, SpellDamage = 0.3, Intellect = 0.55, Spirit = 0.77, Mp5 = 2.2, CritRating = 4.9, HasteRating = 4,
 		Stamina = 0.08, Armor = 0.004, Agility = 0.05, DodgeRating = 0.6, DefenseRating = 0.02, Hp5 = 0.05 }
 	))
