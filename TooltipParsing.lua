@@ -63,6 +63,7 @@ PawnNormalizationRegexes =
 {
 	{"^|c........(.+)$", "%1"}, -- "|cFF 0FF 0Heroic" --> "Heroic"
 	{L.NormalizationEnchant, "%1"}, -- "Enchanted: +50 Strength" --> "+50 Strength" (ENCHANTED_TOOLTIP_LINE)
+	{L.NormalizationZoneBonus, "%1"}, -- Forever: "Equip: +14 Attack Power. This effect is tripled in Forest and Grassland areas." --> "Equip: +14 Attack Power." (/pawn compare 270275)
 	{"^([%w%s%.]+) %+(%d+)%%?$", "+%2 %1"}, -- "Stamina +5" --> "+5 Stamina"
 }
 
@@ -308,7 +309,7 @@ PawnRegexes =
 	{L.Mp52, "Mp5"}, -- /pawn compare item:789::::::2074
 	{L.Mp53, "Mp5"}, -- Burning Crusade, socket bonus on /pawn compare 34360
 	{L.Mp54, "Mp5"}, -- Burning Crusade, /script PawnUIGetAllTextForItem("item:24057") and /pawn compare 28522
-	{L.Mp55, "Mp5"}, -- Burning Crusade, /pawn compare 28304
+	{L.Mp55, "Mp5"}, -- Burning Crusade, /pawn compare 28304; Forever, /pawn compare 284268
 	{L.Hp5, "Hp5"}, -- (on live, we used to count 1 HP5 = 3 Stamina)
 	{L.Hp52, "Hp5"}, -- Demon's Blood
 	{L.Hp53, "Hp5"}, -- Aquamarine Signet of Regeneration or /pawn compare item:789::::::2110
@@ -326,6 +327,7 @@ PawnRegexes =
 	{L.ShadowResist, "ShadowResist"}, -- /pawn compare 12609
 	{L.ArcaneResist, "ArcaneResist"}, -- /pawn compare 12609
 	{L.AllResist, "ArcaneResist", 1, PawnMultipleStatsExtract, "FireResist", 1, PawnMultipleStatsExtract, "FrostResist", 1, PawnMultipleStatsExtract, "NatureResist", 1, PawnMultipleStatsExtract, "ShadowResist", 1, PawnMultipleStatsExtract }, -- Forever, /pawn compare 12609
+	{L.AllResist2, "ArcaneResist", 1, PawnMultipleStatsExtract, "FireResist", 1, PawnMultipleStatsExtract, "FrostResist", 1, PawnMultipleStatsExtract, "NatureResist", 1, PawnMultipleStatsExtract, "ShadowResist", 1, PawnMultipleStatsExtract }, -- Forever, /pawn compare 271904
 	{L.SpellDamage, "SpellDamage", 1, PawnMultipleStatsExtract, "Healing", 1, PawnMultipleStatsExtract}, -- /pawn compare item:20686::::::2159 ("of Sorcery" on Classic)
 	{L.SpellDamage2, "SpellDamage", 1, PawnMultipleStatsExtract, "Healing", 1, PawnMultipleStatsExtract}, -- /pawn compare 16947
 	{L.SpellDamage3, "SpellDamage", 1, PawnMultipleStatsExtract, "Healing", 1, PawnMultipleStatsExtract}, -- French on Classic uses two different wordings:  /pawn compare 20641 vs. /pawn compare 10041
