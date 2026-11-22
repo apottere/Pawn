@@ -4068,13 +4068,15 @@ end
 -- Parameters: Item, MainWeaponLink
 --	Item: The item table for the item in question.
 --	MainWeaponLink: The item link of the weapon in the main hand (or off hand if the main hand is empty), or nil.
--- Returns: SkipScoreBasedUpgrades, CompareUsingItemLevelOnly
+-- Returns: SkipScoreBasedUpgrades, CompareUsingItemLevelOnly, Compare2HAgainstBothHands
+--	Compare2HAgainstBothHands: true if a two-handed item should be compared against the main hand and off hand combined.
 function PawnCheckWeaponCompatibility(Item, MainWeaponLink)
 	-- If an artifact is involved, we only compare using item level, since artifacts are complicated and one item can fill multiple slots.
 	local SkipScoreBasedUpgrades, CompareUsingItemLevelOnly = false, (Item.Rarity == 6)
+	local Compare2HAgainstBothHands
 	local InvType = Item.InvType
 	if InvType == "INVTYPE_WEAPON" or InvType == "INVTYPE_WEAPONMAINHAND" or InvType == "INVTYPE_WEAPONOFFHAND" or InvType == "INVTYPE_SHIELD" or InvType == "INVTYPE_HOLDABLE" or InvType == "INVTYPE_2HWEAPON" or InvType == "INVTYPE_RANGED" then
-		-- Don't show 1H upgrades if using a 2H item, and vice-versa.
+		-- Don't show 1H upgrades if using a 2H item.  If using 1H items, compare a 2H item against both of them together.
 		-- And, don't show any weapons or off-hands as upgrades if they have an artifact equipped.
 		if MainWeaponLink then
 			local MainWeapon = PawnGetItemData(MainWeaponLink)
@@ -4093,13 +4095,21 @@ function PawnCheckWeaponCompatibility(Item, MainWeaponLink)
 					-- They're using a two-handed weapon.  Bail out now if this is a one-handed weapon.
 					if InvType == "INVTYPE_WEAPON" or InvType == "INVTYPE_WEAPONMAINHAND" or InvType == "INVTYPE_WEAPONOFFHAND" or InvType == "INVTYPE_SHIELD" or InvType == "INVTYPE_HOLDABLE" then SkipScoreBasedUpgrades = true end
 				else
-					-- They're using a one-handed weapon.  Bail out now if this is a two-handed weapon.
-					if InvType == "INVTYPE_2HWEAPON" then SkipScoreBasedUpgrades = true end
+					-- They're using one-handed items, so compare a two-handed weapon against the main hand and off hand combined.
+					-- (Not when the main hand is a bow or gun, which some versions put there, or for an artifact, which is compared by item level.)
+					if InvType == "INVTYPE_2HWEAPON" then
+						local MainInvType = MainWeapon.InvType
+						if Item.Rarity ~= 6 and (MainInvType == "INVTYPE_WEAPON" or MainInvType == "INVTYPE_WEAPONMAINHAND" or MainInvType == "INVTYPE_WEAPONOFFHAND" or MainInvType == "INVTYPE_SHIELD" or MainInvType == "INVTYPE_HOLDABLE") then
+							Compare2HAgainstBothHands = true
+						else
+							SkipScoreBasedUpgrades = true
+						end
+					end
 				end
 			end
 		end
 	end -- if InvType == ...
-	return SkipScoreBasedUpgrades, CompareUsingItemLevelOnly
+	return SkipScoreBasedUpgrades, CompareUsingItemLevelOnly, Compare2HAgainstBothHands
 end
 
 -- Determines if an item is an upgrade for any of the current user's enabled scales, and if so, by how much.
@@ -4133,7 +4143,7 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 
 	-- Compare against currently-equipped weapons, unless a scale is set to compare against an equipment set instead.
 	local EquippedWeaponLink = GetInventoryItemLink("player", INVSLOT_MAINHAND) or GetInventoryItemLink("player", INVSLOT_OFFHAND)
-	local EquippedSkipScoreBasedUpgrades, EquippedCompareUsingItemLevelOnly = PawnCheckWeaponCompatibility(Item, EquippedWeaponLink)
+	local EquippedSkipScoreBasedUpgrades, EquippedCompareUsingItemLevelOnly, EquippedCompare2HAgainstBothHands = PawnCheckWeaponCompatibility(Item, EquippedWeaponLink)
 
 	local _
 	local UpgradeTable, BestItemTable, SecondBestItemTable
@@ -4143,11 +4153,11 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 
 			-- If this scale compares against an equipment set, use the items from that set instead of what's equipped.
 			local SetItemLinks = PawnGetEquipmentSetItemLinks(PawnGetScaleComparisonSet(ScaleName))
-			local SkipScale, CompareUsingItemLevelOnly
+			local SkipScale, CompareUsingItemLevelOnly, Compare2HAgainstBothHands
 			if SetItemLinks then
-				SkipScale, CompareUsingItemLevelOnly = PawnCheckWeaponCompatibility(Item, SetItemLinks[INVSLOT_MAINHAND] or SetItemLinks[INVSLOT_OFFHAND])
+				SkipScale, CompareUsingItemLevelOnly, Compare2HAgainstBothHands = PawnCheckWeaponCompatibility(Item, SetItemLinks[INVSLOT_MAINHAND] or SetItemLinks[INVSLOT_OFFHAND])
 			else
-				SkipScale, CompareUsingItemLevelOnly = EquippedSkipScoreBasedUpgrades, EquippedCompareUsingItemLevelOnly
+				SkipScale, CompareUsingItemLevelOnly, Compare2HAgainstBothHands = EquippedSkipScoreBasedUpgrades, EquippedCompareUsingItemLevelOnly, EquippedCompare2HAgainstBothHands
 			end
 			-- Upgrade tracking compares against the best items the player has had, so it doesn't apply to equipment sets.
 			local UseUpgradeTracking = PawnOptions.UpgradeTracking and not SetItemLinks
@@ -4198,7 +4208,27 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 
 				while InvType do
 					local BestData
-					if UseUpgradeTracking and not CompareUsingItemLevelOnly then
+					if Compare2HAgainstBothHands then
+						-- The player is wielding one-handed items (or this scale's equipment set has them): the "best item" is the
+						-- main hand plus off hand, valued together.
+						local Total, FirstLink = 0, nil
+						for Slot = INVSLOT_MAINHAND, INVSLOT_OFFHAND do -- 16 and 17
+							local SlotItem, SlotHadItem = PawnGetItemDataForComparisonSlot(Slot, SetItemLinks)
+							if SlotHadItem and not SlotItem then return end -- An item's data isn't available yet, so we can't evaluate upgrades yet.
+							if SlotItem then
+								local SlotValue
+								if PawnNeverShowUpgradesFor[SlotItem.ID] then SlotValue = PawnInfinity else _, SlotValue = PawnGetSingleValueFromItem(SlotItem, ScaleName) end
+								Total = Total + (SlotValue or 0)
+								if not FirstLink then FirstLink = PawnUnenchantItemLink(SlotItem.Link, true) end
+							end
+						end
+						if FirstLink then BestData = { Total, FirstLink } end
+						if UseUpgradeTracking then
+							-- With upgrade tracking on, it also has to beat the best two-hander they've had.
+							local BestTwoHander = CharacterOptions.BestItems[InvType]
+							if BestTwoHander and (not BestData or BestTwoHander[1] > BestData[1]) then BestData = BestTwoHander end
+						end
+					elseif UseUpgradeTracking and not CompareUsingItemLevelOnly then
 						BestData = CharacterOptions.BestItems[InvType]
 					else
 						-- If upgrade tracking is disabled, manually create a BestData table based on the currently-equipped items for this slot
