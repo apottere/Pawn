@@ -468,6 +468,7 @@ Pawn이 상점에 판매했거나, 파괴했거나, 다른 방법으로 더이�
 		["SocketingAdvisorHeader"] = "Pawn 보석 장착 조언가 추천:",
 		["SocketingAdvisorIgnoreThisItem"] = "낮은 레벨 아이템에 보석을 추가하지 않습니다. 하지만 가능하다면 다음을 사용합니다:",
 		["StarterProvider"] = "초보자 능력치 비율",
+		["ForeverProvider"] = "Forever scales",
 		["ValuesDoNotShowUpgradesFor1H"] = "한손 아이템의 향상 정보 보지 않기",
 		["ValuesDoNotShowUpgradesFor2H"] = "양손 아이템의 향상 정보 보지 않기",
 		["ValuesDoNotShowUpgradesTooltip"] = "이 옵션을 켜면 이 아이템 형식의 향상 정보를 숨깁니다. 예를 들어, 성기사 탱커는 양손 무기를 사용할 수 있지만, 양손 무기는 성기사 탱커 세트를 \"향상\"시키지 않습니다, 따라서 Pawn은 이에 따른 향상 정보를 표시하지 않습니다. 유사하게, 징벌 성기사는 한손 무기를 사용할 수 있지만, 능력치를 향상 시키지 않습니다.",
