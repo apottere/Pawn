@@ -448,6 +448,9 @@ This command cannot be undone!]=],
 		["ScaleSelectorShowScaleTooltip"] = [=[Enable this option to show this scale in item tooltips and have Pawn use it to suggest upgrades.  You can have more than one scale enabled on each character.
 
 Shortcut: Shift+click a scale]=],
+		["ScaleComparisonSet"] = "Compare against:",
+		["ScaleComparisonSetEquipped"] = "Equipped items",
+		["ScaleComparisonSetTooltip"] = "Choose an equipment set for Pawn to compare items against when suggesting upgrades for this scale on this character, instead of the items you have equipped.  Items in the set's ignored slots are compared against what you have equipped.",
 		["ScaleShareHeader"] = "Share your scales",
 		["ScaleTab"] = "Scale",
 		["ScaleTypeNormal"] = "You can change this scale on the Values tab.",

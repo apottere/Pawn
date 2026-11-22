@@ -672,12 +672,26 @@
 								<Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="60" y="-155" /></Offset></Anchor></Anchors>
 								<Layers><Layer level="ARTWORK">
 									<FontString name="$parent_Label" inherits="PawnUICheckboxLabelTemplate" text="PawnUIFrame_ShowScaleCheck_Label_Text">
-										<Size><AbsDimension x="500" y="25" /></Size>
+										<Size><AbsDimension x="230" y="25" /></Size>
 									</FontString>
 								</Layer></Layers>
 								<Scripts><OnClick function="PawnUIFrame_ShowScaleCheck_OnClick" /></Scripts>
 							</CheckButton>
-							
+
+							<Button name="PawnUIFrame_ComparisonSetButton" inherits="PawnUIButtonTemplate">
+								<Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="430" y="-155" /></Offset></Anchor></Anchors>
+								<Size><AbsDimension x="150" y="25" /></Size>
+								<Layers><Layer level="ARTWORK">
+									<FontString name="$parent_Label" inherits="GameFontNormal" justifyH="RIGHT" justifyV="MIDDLE" text="PawnUIFrame_ComparisonSetButton_Label_Text">
+										<Anchors><Anchor point="RIGHT" relativePoint="LEFT"><Offset><AbsDimension x="-5" y="0" /></Offset></Anchor></Anchors>
+										<Size><AbsDimension x="115" y="25" /></Size>
+									</FontString>
+								</Layer></Layers>
+								<Scripts>
+									<OnClick function="PawnUIFrame_ComparisonSetButton_OnClick" />
+								</Scripts>
+							</Button>
+
 							<!-- Share area -->
 							<Button name="PawnUIFrame_ImportScaleButton" inherits="PawnUIButtonTemplate" text="PawnUIFrame_ImportScaleButton_Text">
 								<Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="60" y="-220" /></Offset></Anchor></Anchors>
@@ -1677,6 +1691,9 @@
 				end
 				if VgerCore.ArtifactsExist then
 					self:RegisterEvent("ARTIFACT_UPDATE")
+				end
+				if PawnEquipmentSetsAvailable() then
+					self:RegisterEvent("EQUIPMENT_SETS_CHANGED")
 				end
 
 				PawnUITabList = { PawnUIScalesTabPage, PawnUIValuesTabPage, PawnUICompareTabPage, PawnUIGemsTabPage, PawnUIOptionsTabPage, PawnUIHelpTabPage, PawnUIAboutTabPage }

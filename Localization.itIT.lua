@@ -448,6 +448,9 @@ Questo comando non può essere annullato.]=],
 		["ScaleSelectorShowScaleTooltip"] = [=[Abilita questa opzione per mostrare i valori di questa formula nei tooltip degli oggetti e far sì che Pawn suggerisca quali sono dei miglioramenti. Puoi avere più di una formula abilitata per ogni personaggio.
 
 Scorciatoia: Shift+click su una formula]=],
+		["ScaleComparisonSet"] = "Compare against:",
+		["ScaleComparisonSetEquipped"] = "Equipped items",
+		["ScaleComparisonSetTooltip"] = "Choose an equipment set for Pawn to compare items against when suggesting upgrades for this scale on this character, instead of the items you have equipped.  Items in the set's ignored slots are compared against what you have equipped.",
 		["ScaleShareHeader"] = "Condividi le tue formule",
 		["ScaleTab"] = "Formula",
 		["ScaleTypeNormal"] = "Puoi modificare questa formula nella scheda Valori.",

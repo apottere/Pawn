@@ -226,6 +226,8 @@ PawnUIFrame_ScaleColorSwatch_Label_Text = L.ScaleChangeColor
 PawnUIFrame_ScaleColorSwatch_Tooltip = L.ScaleChangeColorTooltip
 PawnUIFrame_ScaleTypeLabel_NormalScaleText = L.ScaleTypeNormal
 PawnUIFrame_ScaleTypeLabel_ReadOnlyScaleText = L.ScaleTypeReadOnly
+PawnUIFrame_ComparisonSetButton_Label_Text = L.ScaleComparisonSet
+PawnUIFrame_ComparisonSetButton_Tooltip = L.ScaleComparisonSetTooltip
 
 PawnUIFrame_ScaleSettingsShareHeader_Text = L.ScaleShareHeader
 

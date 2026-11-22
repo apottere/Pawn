@@ -410,6 +410,7 @@ function PawnUI_ScalesTab_Refresh()
 		PawnUIFrame_DeleteScaleButton:Disable()
 		PawnUIFrame_ExportScaleButton:Disable()
 	end
+	PawnUIFrame_ComparisonSetButton_Update()
 	PawnUI_ScalesTab_SelectFrame()
 end
 
@@ -1003,6 +1004,64 @@ end
 function PawnUIFrame_ShowScaleCheck_OnClick()
 	PawnSetScaleVisible(PawnUICurrentScale, PawnUIFrame_ShowScaleCheck:GetChecked())
 	PawnUIFrame_ScaleSelector_Refresh()
+end
+
+-- Returns a list of the player's equipment sets, sorted by name: { { ID = 1, Name = "Tank" }, ... }
+local function PawnUIGetEquipmentSets()
+	local Sets = {}
+	for _, EquipmentSetID in pairs(C_EquipmentSet.GetEquipmentSetIDs()) do
+		local Name = C_EquipmentSet.GetEquipmentSetInfo(EquipmentSetID)
+		if Name then tinsert(Sets, { ID = EquipmentSetID, Name = Name }) end
+	end
+	sort(Sets, function(a, b) return strlower(a.Name) < strlower(b.Name) end)
+	return Sets
+end
+
+function PawnUIFrame_ComparisonSetButton_Update()
+	if PawnUICurrentScale == PawnLocal.NoScale or not PawnEquipmentSetsAvailable() then
+		PawnUIFrame_ComparisonSetButton:Hide()
+		return
+	end
+	local EquipmentSetID = PawnGetScaleComparisonSet(PawnUICurrentScale)
+	local Name = EquipmentSetID and C_EquipmentSet.GetEquipmentSetInfo(EquipmentSetID)
+	PawnUIFrame_ComparisonSetButton:SetText(Name or PawnLocal.UI.ScaleComparisonSetEquipped)
+	PawnUIFrame_ComparisonSetButton:Show()
+end
+
+local function PawnUISetComparisonSet(EquipmentSetID)
+	PawnSetScaleComparisonSet(PawnUICurrentScale, EquipmentSetID)
+	PawnUIFrame_ComparisonSetButton_Update()
+end
+
+function PawnUIFrame_ComparisonSetButton_OnClick(self)
+	if PawnUICurrentScale == PawnLocal.NoScale then return end
+	local Sets = PawnUIGetEquipmentSets()
+	local CurrentSetID = PawnGetScaleComparisonSet(PawnUICurrentScale)
+
+	if MenuUtil and MenuUtil.CreateContextMenu then
+		local function IsSelected(EquipmentSetID) return EquipmentSetID == (CurrentSetID or -1) end
+		local function SetSelected(EquipmentSetID) PawnUISetComparisonSet(EquipmentSetID ~= -1 and EquipmentSetID or nil) end
+		MenuUtil.CreateContextMenu(self, function(_, Root)
+			Root:CreateRadio(PawnLocal.UI.ScaleComparisonSetEquipped, IsSelected, SetSelected, -1)
+			for _, Set in ipairs(Sets) do
+				Root:CreateRadio(Set.Name, IsSelected, SetSelected, Set.ID)
+			end
+		end)
+	else
+		-- No menu support, so just cycle through the choices: equipped items, then each set in order.
+		local NextSetID
+		if CurrentSetID == nil then
+			NextSetID = Sets[1] and Sets[1].ID
+		else
+			for Index, Set in ipairs(Sets) do
+				if Set.ID == CurrentSetID then
+					NextSetID = Sets[Index + 1] and Sets[Index + 1].ID
+					break
+				end
+			end
+		end
+		PawnUISetComparisonSet(NextSetID)
+	end
 end
 
 function PawnUIFrame_NormalizeValuesCheck_OnClick()

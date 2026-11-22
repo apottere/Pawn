@@ -456,6 +456,9 @@ Pawn이 상점에 판매했거나, 파괴했거나, 다른 방법으로 더이�
 		["ScaleSelectorShowScaleTooltip"] = [=[이 옵션을 선택하면 이 캐릭터의 아이템 툴팁에 이 능력치 비율의 값을 표시합니다. 각 능력치 비율 별로 한 캐릭터, 여러 캐릭터, 또는 아무 캐릭터에도 표시하지 않게 설정할 수 있습니다.
 
 단축키: 능력치 크기 Shift+클릭]=],
+		["ScaleComparisonSet"] = "Compare against:",
+		["ScaleComparisonSetEquipped"] = "Equipped items",
+		["ScaleComparisonSetTooltip"] = "Choose an equipment set for Pawn to compare items against when suggesting upgrades for this scale on this character, instead of the items you have equipped.  Items in the set's ignored slots are compared against what you have equipped.",
 		["ScaleShareHeader"] = "능력치 비율 공유하기",
 		["ScaleTab"] = "능력치 비율",
 		["ScaleTypeNormal"] = "수치 탭에서 이 능력치 비율을 변경할 수 있습니다.",
