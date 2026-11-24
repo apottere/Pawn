@@ -4147,6 +4147,7 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 
 	local _
 	local UpgradeTable, BestItemTable, SecondBestItemTable
+	local IsEquipped -- whether the item is equipped, for a scale that compares against equipped items
 	if not SkipScoreBasedUpgrades then
 		for ScaleName, Scale in pairs(PawnCommon.Scales) do
 			InvType = Item.InvType -- need to reset this here since it gets nil'ed out in the coming while loop
@@ -4238,14 +4239,15 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 						if Slot1 then Item1, SlotHadItem1 = PawnGetItemDataForComparisonSlot(Slot1, SetItemLinks) end
 						if SlotHadItem1 and not Item1 then return end -- If there is an item in the slot but we don't have data yet, we can't evaluate upgrades yet.
 						if Item1 then ItemLink1 = PawnUnenchantItemLink(Item1.Link, true) end
-						-- If this item is already equipped, it can't be an upgrade for any scale.  (If it's in this scale's equipment set, it's
-						-- the best item for just this scale, which is handled below.)
-						if not SetItemLinks and not TwoSlotsForThisItemType and ItemLink1 and UnenchantedItemLink == ItemLink1 then return end
+						-- If this item is already equipped, it can't be an upgrade for the scales that compare against equipped items.  It can
+						-- still be one for scales that compare against an equipment set, so keep checking those.  (If it's in this scale's
+						-- equipment set, it's the best item for just this scale, which is handled below.)
+						if not SetItemLinks and not TwoSlotsForThisItemType and ItemLink1 and UnenchantedItemLink == ItemLink1 then IsEquipped = true NewTableEntry = nil break end
 						if TwoSlotsForThisItemType then Slot2 = PawnItemEquipLocToSlot2[InvType] end -- Don't check the off-hand slot for weapon upgrades if they can't dual-wield
 						if Slot2 then Item2, SlotHadItem2 = PawnGetItemDataForComparisonSlot(Slot2, SetItemLinks) end
 						if SlotHadItem2 and not Item2 then return end -- If there is an item in the slot but we don't have data yet, we can't evaluate upgrades yet.
 						if Item2 then ItemLink2 = PawnUnenchantItemLink(Item2.Link, true) end
-						if not SetItemLinks and not TwoSlotsForThisItemType and Item2 and ItemLink2 and UnenchantedItemLink == PawnUnenchantItemLink(Item2.Link, true) then return end
+						if not SetItemLinks and not TwoSlotsForThisItemType and Item2 and ItemLink2 and UnenchantedItemLink == PawnUnenchantItemLink(Item2.Link, true) then IsEquipped = true NewTableEntry = nil break end
 						VgerCore.Assert(Value1 == nil and Value2 == nil, "Where's the value coming from?")
 						if CompareUsingItemLevelOnly then
 							if Item1 then Value1 = Item1.Level end
@@ -4357,6 +4359,9 @@ function PawnIsItemAnUpgrade(Item, DoNotRescan)
 			end -- if scale is visible
 		end -- loop through scales
 	end -- skipping trinkets
+
+	-- An equipped item that isn't an upgrade for any equipment set gets nothing, the same as before equipment sets.
+	if IsEquipped and not UpgradeTable and not BestItemTable and not SecondBestItemTable then return end
 
 	if UpgradeTable then sort(UpgradeTable, PawnLocalizedScaleNameComparer) end
 
