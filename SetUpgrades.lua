@@ -5,7 +5,8 @@
 --
 -- Set upgrades window: lists items you own that are an upgrade for a scale's "Compare against" equipment set but aren't
 -- in that set yet, wherever they are: in your bags, equipped (say, while you're wearing a different set), or in your
--- bank (as of the last time it was open).  It pops up when a new one turns up.  /pawn upgrades opens it any time.
+-- bank (as of the last time it was open).  When a new one turns up, it pops up and says so in chat (each can be turned
+-- off in the window).  /pawn upgrades opens it any time.
 ------------------------------------------------------------
 
 local MAX_ROWS = 12
@@ -16,6 +17,8 @@ local L = {
 	None = "No set upgrades.",
 	More = "...and %d more.",
 	PopUp = "Pop up for new upgrades",
+	Announce = "Announce new upgrades in chat",
+	Announcement = "|cff8ec3e6Pawn:|r %s is an upgrade for your |cffffd100%s|r set.  (/pawn upgrades)",
 	Hint = "Click to equip, then save the set.  Shift-click to link.",
 	NoSets = "No scales compare against an equipment set.  Pick one with \"Compare against\" on Pawn's Compare tab.",
 	Combat = "Can't change equipment in combat.",
@@ -160,6 +163,7 @@ local function ScanUpgrades()
 		if not Seen[Key] then
 			Seen[Key] = true
 			FoundNew = true
+			if not PawnCommon.SetUpgradesNoChat then VgerCore.Message(format(L.Announcement, Upgrade.Link, Upgrade.SetName)) end
 		end
 	end
 	return FoundNew
@@ -208,6 +212,16 @@ PopUpLabel:SetPoint("LEFT", PopUpCheck, "RIGHT", 2, 0)
 PopUpLabel:SetFontObject("GameFontHighlightSmall")
 PopUpLabel:SetText(L.PopUp)
 PopUpCheck:SetScript("OnClick", function(self) PawnCommon.SetUpgradesNoPopUp = not self:GetChecked() end)
+
+local ChatCheck = CreateFrame("CheckButton", nil, Frame, "UICheckButtonTemplate")
+ChatCheck:SetSize(20, 20)
+ChatCheck:SetPoint("BOTTOMLEFT", PopUpCheck, "TOPLEFT", 0, 0)
+local ChatLabel = ChatCheck.Text or ChatCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+ChatLabel:ClearAllPoints()
+ChatLabel:SetPoint("LEFT", ChatCheck, "RIGHT", 2, 0)
+ChatLabel:SetFontObject("GameFontHighlightSmall")
+ChatLabel:SetText(L.Announce)
+ChatCheck:SetScript("OnClick", function(self) PawnCommon.SetUpgradesNoChat = not self:GetChecked() end)
 
 local function EquipUpgrade(Upgrade)
 	if InCombatLockdown() then VgerCore.Message(L.Combat) return end
@@ -299,8 +313,9 @@ local function Refresh()
 	end
 
 	PopUpCheck:SetChecked(not PawnCommon.SetUpgradesNoPopUp)
+	ChatCheck:SetChecked(not PawnCommon.SetUpgradesNoChat)
 	local MessageHeight = Message and ((MessageText:GetStringHeight() or 12) + 8) or 0
-	Frame:SetHeight(PADDING + 16 + 6 + Shown * ROW_HEIGHT + MessageHeight + 8 + 24 + 14 + PADDING)
+	Frame:SetHeight(PADDING + 16 + 6 + Shown * ROW_HEIGHT + MessageHeight + 8 + 20 + 24 + 14 + PADDING)
 end
 
 local function RestorePosition()
