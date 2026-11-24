@@ -49,6 +49,7 @@ Pawn.lua
 PawnBags.lua
 PawnUI.lua
 PawnUI.xml
+SetUpgrades.lua
 AskMrRobot.lua [AllowLoadGameType mainline][ExcludeLoadGameType camelot]
 ClassicHawsJon.lua [AllowLoadGameType classic, camelot]
 ForeverScales.lua [AllowLoadGameType camelot]

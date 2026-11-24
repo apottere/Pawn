@@ -998,6 +998,8 @@ function PawnCommand(Command)
 		if PawnUIFrame_DebugCheck then PawnUIFrame_DebugCheck:SetChecked(PawnCommon.Debug) end
 	elseif Command == "backup" then
 		PawnUIExportAllScales()
+	elseif Command == "upgrades" then
+		if PawnSetUpgradesToggle then PawnSetUpgradesToggle() end
 	elseif strsub(Command, 1, 7) == "tooltip" then
 		local ItemLink = strsub(Command, 9)
 		local ItemID = tonumber(ItemLink)
