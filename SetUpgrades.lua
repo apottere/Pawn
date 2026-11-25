@@ -6,7 +6,7 @@
 -- Set upgrades window: lists items you own that are an upgrade for a scale's "Compare against" equipment set but aren't
 -- in that set yet, wherever they are: in your bags, equipped (say, while you're wearing a different set), or in your
 -- bank (as of the last time it was open).  It stays on screen, like a unit frame, and says so in chat when a new one
--- turns up.  Drag to move; right-click for options; the close button or /pawn upgrades hides and shows it.
+-- turns up.  Drag to move; right-click for options, including hiding it; /pawn upgrades hides and shows it.
 ------------------------------------------------------------
 
 local MAX_ROWS = 12
@@ -195,10 +195,6 @@ local TitleText = Frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 TitleText:SetPoint("TOPLEFT", PADDING, -PADDING)
 TitleText:SetText(L.Title)
 
-local CloseButton = CreateFrame("Button", nil, Frame, "UIPanelCloseButton")
-CloseButton:SetSize(20, 20)
-CloseButton:SetPoint("TOPRIGHT", 0, 0)
-
 local MessageText = Frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 MessageText:SetWidth(WIDTH - PADDING * 2)
 MessageText:SetJustifyH("LEFT")
@@ -229,7 +225,7 @@ local function OpenOptionsMenu(Owner)
 		Root:CreateTitle(L.Title)
 		Root:CreateCheckbox(L.Announce, function() return not PawnCommon.SetUpgradesNoChat end, function() PawnCommon.SetUpgradesNoChat = not PawnCommon.SetUpgradesNoChat or nil end)
 		Root:CreateCheckbox(L.Lock, function() return PawnCommon.SetUpgradesLocked end, function() PawnCommon.SetUpgradesLocked = not PawnCommon.SetUpgradesLocked or nil end)
-		Root:CreateButton(L.Hide, function() SetHidden(true) end)
+		Root:CreateButton(L.Hide, function() SetHidden(true) VgerCore.Message(L.Hidden) end)
 	end)
 end
 
@@ -347,12 +343,6 @@ Frame:SetScript("OnDragStop", function(self)
 	self:StopMovingOrSizing()
 	local Point, _, RelativePoint, X, Y = self:GetPoint()
 	PawnCommon.SetUpgradesWindow = { Point = Point, RelativePoint = RelativePoint, X = X, Y = Y }
-end)
-
--- The close button hides it until /pawn upgrades.
-CloseButton:SetScript("OnClick", function()
-	SetHidden(true)
-	VgerCore.Message(L.Hidden)
 end)
 
 local Ready = false
