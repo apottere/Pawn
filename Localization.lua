@@ -72,7 +72,7 @@ www.vgermods.com
 /pawn -- show or hide the Pawn UI
 /pawn debug [ on | off ] -- spam debug messages to the console
 /pawn backup -- backup all of your scales to scale tags
-/pawn upgrades -- show items that are upgrades for your scales' equipment sets
+/pawn upgrades [ lock | unlock | chat | reset ] -- show or hide the set upgrades window
 /pawn compare [ left | right ] ItemID | ItemLink -- compare items
  
 For more information on customizing Pawn, please see the help file (Readme.md) that comes with the mod.

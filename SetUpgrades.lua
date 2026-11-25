@@ -5,21 +5,27 @@
 --
 -- Set upgrades window: lists items you own that are an upgrade for a scale's "Compare against" equipment set but aren't
 -- in that set yet, wherever they are: in your bags, equipped (say, while you're wearing a different set), or in your
--- bank (as of the last time it was open).  When a new one turns up, it pops up and says so in chat (each can be turned
--- off in the window).  /pawn upgrades opens it any time.
+-- bank (as of the last time it was open).  It stays on screen, like a unit frame, and says so in chat when a new one
+-- turns up.  Drag to move; right-click for options; the close button or /pawn upgrades hides and shows it.
 ------------------------------------------------------------
 
 local MAX_ROWS = 12
-local ROW_HEIGHT, ICON_SIZE, WIDTH, PADDING = 32, 24, 360, 10
+local ROW_HEIGHT, ICON_SIZE, WIDTH, PADDING = 28, 22, 300, 6
 local FIRST_SLOT, LAST_SLOT = INVSLOT_FIRST_EQUIPPED or 1, INVSLOT_LAST_EQUIPPED or 19
 local L = {
-	Title = "Pawn: set upgrades",
-	None = "No set upgrades.",
+	Title = "Set upgrades",
+	TitleCount = "Set upgrades (%d)",
+	None = "None",
 	More = "...and %d more.",
-	PopUp = "Pop up for new upgrades",
 	Announce = "Announce new upgrades in chat",
-	Announcement = "|cff8ec3e6Pawn:|r %s is an upgrade for your |cffffd100%s|r set.  (/pawn upgrades)",
-	Hint = "Click to equip, then save the set.  Shift-click to link.",
+	Lock = "Lock position",
+	Hide = "Hide (/pawn upgrades to show)",
+	Hidden = "Set upgrades hidden.  Type /pawn upgrades to show them again.",
+	ChatOn = "Set upgrade announcements on.",
+	ChatOff = "Set upgrade announcements off.",
+	Usage = "/pawn upgrades -- show or hide the set upgrades window\n/pawn upgrades lock | unlock | chat | reset",
+	Announcement = "|cff8ec3e6Pawn:|r %s is an upgrade for your |cffffd100%s|r set.",
+	Hint = "Click to equip, then save the set.  Shift-click to link.  Right-click for options.",
 	NoSets = "No scales compare against an equipment set.  Pick one with \"Compare against\" on Pawn's Compare tab.",
 	Combat = "Can't change equipment in combat.",
 	Equipped = "Equipped %s.  Save |cffffd100%s|r in the equipment manager to add it.",
@@ -29,7 +35,6 @@ local Upgrades = {} -- { { Link, SetID, SetName, Lines = { upgrade tooltip lines
 local Seen = {} -- [link .. ":" .. setID] = true for upgrades already found this session
 local AnySetScales = false
 local BankOpen = false
-local OpenedByHand = false
 
 ------------------------------------------------------------
 -- Finding upgrades
@@ -174,54 +179,31 @@ end
 ------------------------------------------------------------
 
 local Frame = CreateFrame("Frame", "PawnSetUpgradesFrame", UIParent)
-Frame:SetSize(WIDTH, 100)
-Frame:SetFrameStrata("DIALOG")
+Frame:SetSize(WIDTH, 60)
+Frame:SetFrameStrata("MEDIUM")
 Frame:SetClampedToScreen(true)
 Frame:SetMovable(true)
 Frame:EnableMouse(true)
 Frame:RegisterForDrag("LeftButton")
 Frame:Hide()
-tinsert(UISpecialFrames, "PawnSetUpgradesFrame") -- Escape closes it
 
 local Background = Frame:CreateTexture(nil, "BACKGROUND")
 Background:SetAllPoints()
-Background:SetColorTexture(0, 0, 0, 0.8)
+Background:SetColorTexture(0, 0, 0, 0.5)
 
-local TitleText = Frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+local TitleText = Frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 TitleText:SetPoint("TOPLEFT", PADDING, -PADDING)
 TitleText:SetText(L.Title)
 
 local CloseButton = CreateFrame("Button", nil, Frame, "UIPanelCloseButton")
-CloseButton:SetPoint("TOPRIGHT", 2, 2)
+CloseButton:SetSize(20, 20)
+CloseButton:SetPoint("TOPRIGHT", 0, 0)
 
 local MessageText = Frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-MessageText:SetPoint("TOPLEFT", TitleText, "BOTTOMLEFT", 0, -8)
 MessageText:SetWidth(WIDTH - PADDING * 2)
 MessageText:SetJustifyH("LEFT")
 
-local HintText = Frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-HintText:SetPoint("BOTTOMLEFT", PADDING, PADDING)
-HintText:SetText(L.Hint)
-
-local PopUpCheck = CreateFrame("CheckButton", nil, Frame, "UICheckButtonTemplate")
-PopUpCheck:SetSize(20, 20)
-PopUpCheck:SetPoint("BOTTOMLEFT", HintText, "TOPLEFT", -2, 2)
-local PopUpLabel = PopUpCheck.Text or PopUpCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-PopUpLabel:ClearAllPoints()
-PopUpLabel:SetPoint("LEFT", PopUpCheck, "RIGHT", 2, 0)
-PopUpLabel:SetFontObject("GameFontHighlightSmall")
-PopUpLabel:SetText(L.PopUp)
-PopUpCheck:SetScript("OnClick", function(self) PawnCommon.SetUpgradesNoPopUp = not self:GetChecked() end)
-
-local ChatCheck = CreateFrame("CheckButton", nil, Frame, "UICheckButtonTemplate")
-ChatCheck:SetSize(20, 20)
-ChatCheck:SetPoint("BOTTOMLEFT", PopUpCheck, "TOPLEFT", 0, 0)
-local ChatLabel = ChatCheck.Text or ChatCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-ChatLabel:ClearAllPoints()
-ChatLabel:SetPoint("LEFT", ChatCheck, "RIGHT", 2, 0)
-ChatLabel:SetFontObject("GameFontHighlightSmall")
-ChatLabel:SetText(L.Announce)
-ChatCheck:SetScript("OnClick", function(self) PawnCommon.SetUpgradesNoChat = not self:GetChecked() end)
+local Locked = function() return PawnCommon.SetUpgradesLocked end
 
 local function EquipUpgrade(Upgrade)
 	if InCombatLockdown() then VgerCore.Message(L.Combat) return end
@@ -231,13 +213,38 @@ local function EquipUpgrade(Upgrade)
 	VgerCore.Message(format(L.Equipped, Upgrade.Link, Upgrade.SetName))
 end
 
+local function SetHidden(Hidden)
+	PawnCommon.SetUpgradesHidden = Hidden or nil
+	PawnSetUpgradesUpdate()
+end
+
+-- The options menu, on right-click.
+local function OpenOptionsMenu(Owner)
+	if not (MenuUtil and MenuUtil.CreateContextMenu) then
+		VgerCore.Message(L.Usage)
+		return
+	end
+	GameTooltip:Hide()
+	MenuUtil.CreateContextMenu(Owner, function(_, Root)
+		Root:CreateTitle(L.Title)
+		Root:CreateCheckbox(L.Announce, function() return not PawnCommon.SetUpgradesNoChat end, function() PawnCommon.SetUpgradesNoChat = not PawnCommon.SetUpgradesNoChat or nil end)
+		Root:CreateCheckbox(L.Lock, function() return PawnCommon.SetUpgradesLocked end, function() PawnCommon.SetUpgradesLocked = not PawnCommon.SetUpgradesLocked or nil end)
+		Root:CreateButton(L.Hide, function() SetHidden(true) end)
+	end)
+end
+
+Frame:SetScript("OnMouseUp", function(self, Button)
+	if Button == "RightButton" then OpenOptionsMenu(self) end
+end)
+
 local Rows = {}
 local function GetRow(Index)
 	if Rows[Index] then return Rows[Index] end
 	local Row = CreateFrame("Button", nil, Frame)
 	Row:SetSize(WIDTH - PADDING * 2, ROW_HEIGHT)
-	Row:SetPoint("TOPLEFT", TitleText, "BOTTOMLEFT", 0, -6 - (Index - 1) * ROW_HEIGHT)
+	Row:SetPoint("TOPLEFT", TitleText, "BOTTOMLEFT", 0, -4 - (Index - 1) * ROW_HEIGHT)
 	Row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	Row:RegisterForDrag("LeftButton")
 
 	local Highlight = Row:CreateTexture(nil, "HIGHLIGHT")
 	Highlight:SetAllPoints()
@@ -247,20 +254,20 @@ local function GetRow(Index)
 	Row.Icon:SetSize(ICON_SIZE, ICON_SIZE)
 	Row.Icon:SetPoint("LEFT", 2, 0)
 
-	Row.Name = Row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	Row.Name:SetPoint("TOPLEFT", Row.Icon, "TOPRIGHT", 6, 0)
-	Row.Name:SetPoint("RIGHT", Row, "RIGHT", -100, 0)
+	Row.Name = Row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	Row.Name:SetPoint("TOPLEFT", Row.Icon, "TOPRIGHT", 6, -1)
+	Row.Name:SetPoint("RIGHT", Row, "RIGHT", -90, 0)
 	Row.Name:SetJustifyH("LEFT")
 	Row.Name:SetWordWrap(false)
 
 	Row.SetName = Row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	Row.SetName:SetPoint("TOPRIGHT", Row, "TOPRIGHT", -2, -3)
-	Row.SetName:SetWidth(96)
+	Row.SetName:SetPoint("TOPRIGHT", Row, "TOPRIGHT", -2, -4)
+	Row.SetName:SetWidth(86)
 	Row.SetName:SetJustifyH("RIGHT")
 	Row.SetName:SetWordWrap(false)
 
 	Row.Detail = Row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	Row.Detail:SetPoint("BOTTOMLEFT", Row.Icon, "BOTTOMRIGHT", 6, 0)
+	Row.Detail:SetPoint("BOTTOMLEFT", Row.Icon, "BOTTOMRIGHT", 6, 1)
 	Row.Detail:SetPoint("RIGHT", Row, "RIGHT", -2, 0)
 	Row.Detail:SetJustifyH("LEFT")
 	Row.Detail:SetWordWrap(false)
@@ -268,22 +275,31 @@ local function GetRow(Index)
 	Row:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetHyperlink(self.Upgrade.Link)
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine(L.Hint, 0.5, 0.8, 1)
 		GameTooltip:Show()
 	end)
 	Row:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	Row:SetScript("OnClick", function(self)
-		if IsModifiedClick("CHATLINK") and ChatEdit_InsertLink then
+	Row:SetScript("OnClick", function(self, Button)
+		if Button == "RightButton" then
+			OpenOptionsMenu(self)
+		elseif IsModifiedClick("CHATLINK") and ChatEdit_InsertLink then
 			ChatEdit_InsertLink(self.Upgrade.Link)
 		else
 			EquipUpgrade(self.Upgrade)
 		end
 	end)
+	-- Dragging a row moves the window.
+	Row:SetScript("OnDragStart", function() Frame:GetScript("OnDragStart")(Frame) end)
+	Row:SetScript("OnDragStop", function() Frame:GetScript("OnDragStop")(Frame) end)
 
 	Rows[Index] = Row
 	return Row
 end
 
 local function Refresh()
+	TitleText:SetText(#Upgrades > 0 and format(L.TitleCount, #Upgrades) or L.Title)
+
 	local Shown = math.min(#Upgrades, MAX_ROWS)
 	for Index = 1, Shown do
 		local Row, Upgrade = GetRow(Index), Upgrades[Index]
@@ -301,21 +317,19 @@ local function Refresh()
 	if #Upgrades > MAX_ROWS then
 		Message = format(L.More, #Upgrades - MAX_ROWS)
 	elseif #Upgrades == 0 then
-		Message = AnySetScales and L.None or L.NoSets
+		Message = L.None
 	end
 	MessageText:ClearAllPoints()
+	local MessageHeight = 0
 	if Message then
-		MessageText:SetPoint("TOPLEFT", TitleText, "BOTTOMLEFT", 0, -8 - Shown * ROW_HEIGHT)
+		MessageText:SetPoint("TOPLEFT", TitleText, "BOTTOMLEFT", 0, -4 - Shown * ROW_HEIGHT)
 		MessageText:SetText(Message)
 		MessageText:Show()
+		MessageHeight = (MessageText:GetStringHeight() or 10) + 4
 	else
 		MessageText:Hide()
 	end
-
-	PopUpCheck:SetChecked(not PawnCommon.SetUpgradesNoPopUp)
-	ChatCheck:SetChecked(not PawnCommon.SetUpgradesNoChat)
-	local MessageHeight = Message and ((MessageText:GetStringHeight() or 12) + 8) or 0
-	Frame:SetHeight(PADDING + 16 + 6 + Shown * ROW_HEIGHT + MessageHeight + 8 + 20 + 24 + 14 + PADDING)
+	Frame:SetHeight(PADDING + 12 + 4 + Shown * ROW_HEIGHT + MessageHeight + PADDING)
 end
 
 local function RestorePosition()
@@ -328,26 +342,36 @@ local function RestorePosition()
 	end
 end
 
-Frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+Frame:SetScript("OnDragStart", function(self) if not Locked() then self:StartMoving() end end)
 Frame:SetScript("OnDragStop", function(self)
 	self:StopMovingOrSizing()
 	local Point, _, RelativePoint, X, Y = self:GetPoint()
 	PawnCommon.SetUpgradesWindow = { Point = Point, RelativePoint = RelativePoint, X = X, Y = Y }
 end)
-Frame:SetScript("OnHide", function() OpenedByHand = false end)
+
+-- The close button hides it until /pawn upgrades.
+CloseButton:SetScript("OnClick", function()
+	SetHidden(true)
+	VgerCore.Message(L.Hidden)
+end)
 
 local Ready = false
-local function Update()
+local PositionRestored = false
+
+-- Rescans and shows the window, unless it's been hidden or no scale compares against an equipment set.
+function PawnSetUpgradesUpdate()
 	if not Ready then return end
-	local FoundNew = ScanUpgrades()
-	if FoundNew and not PawnCommon.SetUpgradesNoPopUp and not Frame:IsShown() then
-		RestorePosition()
-		Frame:Show()
-	elseif #Upgrades == 0 and Frame:IsShown() and not OpenedByHand then
-		-- It popped up by itself and there's nothing left to show.
+	ScanUpgrades()
+	if PawnCommon.SetUpgradesHidden or not AnySetScales then
 		Frame:Hide()
+		return
 	end
-	if Frame:IsShown() then Refresh() end
+	if not PositionRestored then
+		RestorePosition()
+		PositionRestored = true
+	end
+	Refresh()
+	Frame:Show()
 end
 
 local UpdateQueued = false
@@ -356,26 +380,35 @@ local function QueueUpdate(Delay)
 	UpdateQueued = true
 	C_Timer.After(Delay or 0.3, function()
 		UpdateQueued = false
-		Update()
+		PawnSetUpgradesUpdate()
 	end)
 end
 
--- Shows or hides the window.  (/pawn upgrades)
-function PawnSetUpgradesToggle()
-	if Frame:IsShown() then Frame:Hide() return end
-	if not Ready then return end
-	ScanUpgrades()
-	RestorePosition()
-	Frame:Show()
-	OpenedByHand = true
-	Refresh()
+-- /pawn upgrades [ lock | unlock | chat | reset ]
+function PawnSetUpgradesCommand(Command)
+	Command = strlower(strtrim(Command or ""))
+	if Command == "" then
+		SetHidden(not PawnCommon.SetUpgradesHidden)
+		if not PawnCommon.SetUpgradesHidden and not AnySetScales then VgerCore.Message(L.NoSets) end
+	elseif Command == "lock" or Command == "unlock" then
+		PawnCommon.SetUpgradesLocked = (Command == "lock") or nil
+	elseif Command == "chat" then
+		PawnCommon.SetUpgradesNoChat = not PawnCommon.SetUpgradesNoChat or nil
+		VgerCore.Message(PawnCommon.SetUpgradesNoChat and L.ChatOff or L.ChatOn)
+	elseif Command == "reset" then
+		PawnCommon.SetUpgradesWindow = nil
+		RestorePosition()
+	else
+		VgerCore.Message(L.Usage)
+	end
 end
 
 ------------------------------------------------------------
 -- Events
 ------------------------------------------------------------
 
-Frame:SetScript("OnEvent", function(self, Event)
+local EventFrame = CreateFrame("Frame")
+EventFrame:SetScript("OnEvent", function(self, Event)
 	if Event == "PLAYER_ENTERING_WORLD" then
 		-- Pawn sets up its scales on login; give it a moment.
 		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
@@ -392,7 +425,7 @@ end)
 
 for _, Event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_EQUIPMENT_CHANGED", "EQUIPMENT_SETS_CHANGED", "EQUIPMENT_SWAP_FINISHED",
 	"BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED", "GET_ITEM_INFO_RECEIVED" }) do
-	pcall(Frame.RegisterEvent, Frame, Event)
+	pcall(EventFrame.RegisterEvent, EventFrame, Event)
 end
 
 -- Pawn refreshes its bag arrows whenever scales or their equipment sets change, so recheck then too.
